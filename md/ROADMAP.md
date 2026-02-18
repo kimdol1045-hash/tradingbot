@@ -8,10 +8,10 @@
 ## 프로젝트 현황 요약
 
 ```
-상태: Sprint 7 완료 — 코어 시스템 전체 구현 완료
-파일: 65개 (Python 37개, JSON 4개, 설계문서 12개, 배포 설정 등)
-코드: ~34,500줄
-Git: main 브랜치, initial commit (317e2cd)
+상태: Sprint 8 완료 — 백테스트 엔진 + 6개 버그 수정 완료
+파일: 70개+ (Python 40+, JSON 4개, 설계문서 12개, 배포 설정 등)
+코드: ~35,300줄
+Git: main 브랜치, 4 commits
 ```
 
 ---
@@ -212,19 +212,22 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 
 ## 남은 스프린트
 
-### 🔲 Sprint 8: 백테스트 엔진 (다음)
+### ✅ Sprint 8: 백테스트 엔진 + 버그 수정
 
-| 작업 | 산출물 | 설명 |
-|------|--------|------|
-| 백테스터 엔진 골격 | `src/backtest/engine.py` | 캔들 리플레이 → 파이프라인 5Phase 실행 |
-| 비용 모델 적용 | engine.py | 슬리피지 + 수수료 + Stage별 배수 (conservative_mult=1.5) |
-| 포지션 시뮬레이터 | engine.py | SL/TP/Trailing/Timeout 분기 처리 |
-| 성과 지표 산출 | `src/backtest/metrics.py` | PF, MDD, Sortino, 승률, 거래수, Sharpe |
-| S1~S4 백테스트 실행 | 결과 리포트 | Hyperliquid 과거 데이터로 전 에이전트 성과 검증 |
-| 파라미터 초기값 조정 | params/s1~s4 갱신 | 백테스트 기반 최적화 |
-| 백테스트 리포트 | `src/backtest/report.py` | 에이전트별 요약 + 거래 로그 출력 |
-
-**완료 기준**: 4개 에이전트 각각 최소 30일 백테스트 완료. PF, MDD 지표 산출.
+**구현 완료 항목:**
+- [x] `src/backtest/engine.py`: 캔들 리플레이 → 파이프라인 5Phase 실행
+- [x] ReplayCache: TF별 캔들 누적, collector 캐시 인터페이스
+- [x] SimPosition: SL/TP/trailing/timeout 분기 처리
+- [x] 비용 모델: 슬리피지 + 수수료 × conservative_mult(1.5)
+- [x] `src/backtest/metrics.py`: PF, MDD, Sharpe, Sortino, Calmar, 승률, 스트릭, 에쿼티 커브
+- [x] `src/backtest/report.py`: 텍스트 기반 성과 리포트 + 에이전트 비교표
+- [x] `src/backtest/__main__.py`: CLI (`python -m src.backtest --synthetic`)
+- [x] **버그 수정**: Phase 2 READ _raw_to_score 폴백 (레짐 항상 SIDEWAYS 문제)
+- [x] **버그 수정**: Phase 4 GATE Ichimoku/ADX/LiqRisk 실제 구현 (플레이스홀더 제거)
+- [x] **버그 수정**: Phase 3 SCAN 적응형 min_score + MTF 페널티 완화
+- [x] **버그 수정**: T1/T3 거리 임계값 확대 (1.0→1.5, 0.3→0.5 ATR)
+- [x] **버그 수정**: Volume Profile 5-19 캔들 VWAP 폴백
+- [x] **버그 수정**: 백테스트 SHORT TP 정렬 순서 + tolerance 수정
 
 ---
 
@@ -272,11 +275,11 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 | **S5** | Telegram 알림 + Equity Tracker | ✅ 완료 |
 | **S6** | OpenClaw Evolver (GPT-4o) + 과거 데이터 로더 | ✅ 완료 |
 | **S7** | 프로덕션 배포 (Docker, systemd, 헬스체크, preflight) | ✅ 완료 |
-| **S8** | 백테스트 엔진 | 🔲 다음 |
-| **S9** | Paper Trading + 안정성 | 🔲 |
+| **S8** | 백테스트 엔진 + 6개 버그 수정 | ✅ 완료 |
+| **S9** | Paper Trading + 안정성 | 🔲 다음 |
 | **S10** | 검증 + 실전 전환 | 🔲 |
 
-**진행률: 7/10 스프린트 완료 (코어 시스템 100%, 검증/실전 전환 남음)**
+**진행률: 8/10 스프린트 완료 (코어 시스템 + 백테스트 100%, Paper Trading/실전 전환 남음)**
 
 ---
 

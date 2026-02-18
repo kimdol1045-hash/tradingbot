@@ -5,6 +5,7 @@ S1 → S2 → S3 → S4 sequential execution per symbol.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -24,14 +25,16 @@ logger = logging.getLogger(__name__)
 class PipelineRunner:
     """Runs the 5-phase pipeline for all agents."""
 
-    def __init__(self, candle_cache, position_manager=None):
+    def __init__(self, candle_cache, position_manager=None, db=None):
         """
         Args:
             candle_cache: CandleCache with get(symbol, tf) method
             position_manager: PositionManager for signal execution
+            db: aiosqlite connection for pipeline logging (optional)
         """
         self.cache = candle_cache
         self.pm = position_manager
+        self.db = db
 
         # Per-agent state
         self.agent_states: dict[str, dict] = {}
@@ -130,7 +133,12 @@ class PipelineRunner:
         }
 
         # ━━━━ Phase 1: SAFETY ━━━━
-        safety = phase1_safety(primary_candles, stats, state, params)
+        try:
+            safety = phase1_safety(primary_candles, stats, state, params)
+        except Exception:
+            logger.exception("[%s/%s] Phase 1 SAFETY error — defaulting to blocked", agent_id, symbol)
+            return None
+
         self._update_stage_state(agent_id, safety.stage)
 
         if safety.action == "CLOSE_ALL_AND_HALT":
@@ -142,27 +150,38 @@ class PipelineRunner:
             return None
 
         # ━━━━ Phase 2: READ ━━━━
-        regime = phase2_read(candles_by_tf, safety, agent_config, state, params)
-        # We don't update grace_counter directly here — transition handler returns it
+        try:
+            regime = phase2_read(candles_by_tf, safety, agent_config, state, params)
+        except Exception:
+            logger.exception("[%s/%s] Phase 2 READ error — skipping", agent_id, symbol)
+            return None
 
         # ━━━━ Phase 3: SCAN ━━━━
-        stats_dict = {
-            "funding_p95": stats.funding_p97,
-            "funding_p5": stats.funding_p3,
-            "oi_change_p90": stats.oi_change_p97,
-        }
-        scan = phase3_scan(candles_by_tf, regime, safety, agent_config, params, stats_dict)
+        try:
+            stats_dict = {
+                "funding_p95": stats.funding_p97,
+                "funding_p5": stats.funding_p3,
+                "oi_change_p90": stats.oi_change_p97,
+            }
+            scan = phase3_scan(candles_by_tf, regime, safety, agent_config, params, stats_dict)
+        except Exception:
+            logger.exception("[%s/%s] Phase 3 SCAN error — skipping", agent_id, symbol)
+            return None
 
         if not scan.found:
             logger.debug("[%s/%s] No pattern (score=%.1f)", agent_id, symbol, scan.score)
             return None
 
         # ━━━━ Phase 4: GATE ━━━━
-        gate_stats = {
-            "spread_p90": stats.spread_p95,
-            "imbalance_p90": stats.imbalance_p95,
-        }
-        gate = phase4_gate(primary_candles, scan, regime, safety, state, params, gate_stats)
+        try:
+            gate_stats = {
+                "spread_p90": stats.spread_p95,
+                "imbalance_p90": stats.imbalance_p95,
+            }
+            gate = phase4_gate(primary_candles, scan, regime, safety, state, params, gate_stats)
+        except Exception:
+            logger.exception("[%s/%s] Phase 4 GATE error — skipping", agent_id, symbol)
+            return None
 
         if not gate.passed:
             logger.debug(
@@ -172,7 +191,11 @@ class PipelineRunner:
             return None
 
         # ━━━━ Phase 5: EXECUTE ━━━━
-        signal = phase5_execute(scan, regime, safety, gate, agent_config, state, params)
+        try:
+            signal = phase5_execute(scan, regime, safety, gate, agent_config, state, params)
+        except Exception:
+            logger.exception("[%s/%s] Phase 5 EXECUTE error — skipping", agent_id, symbol)
+            return None
 
         elapsed = (time.perf_counter() - t0) * 1000
         if signal:
@@ -184,7 +207,88 @@ class PipelineRunner:
         else:
             logger.debug("[%s/%s] No signal from Phase 5 (%.0fms)", agent_id, symbol, elapsed)
 
+        # Structured pipeline log
+        self._log_pipeline_snapshot(
+            agent_id, symbol, safety, regime, scan, gate, signal, elapsed,
+        )
+
         return signal
+
+    def _log_pipeline_snapshot(
+        self, agent_id: str, symbol: str,
+        safety, regime, scan, gate, signal, elapsed_ms: float,
+    ):
+        """Write structured JSON snapshot to pipeline_logs table."""
+        if self.db is None:
+            return
+
+        snapshot = {
+            "elapsed_ms": round(elapsed_ms, 1),
+            "p1_safety": {
+                "stage": safety.stage,
+                "mdd_mode": safety.mdd_mode,
+                "blocked": safety.blocked,
+                "reason": safety.reason,
+            },
+            "p2_read": {
+                "regime": regime.regime,
+                "confidence": round(regime.confidence, 2),
+                "alignment": round(regime.alignment, 2),
+                "in_transition": regime.in_transition,
+            },
+            "p3_scan": {
+                "found": scan.found,
+                "score": scan.score,
+                "primary_type": scan.primary_type,
+                "direction": scan.direction,
+                "mtf_grade": scan.mtf_grade,
+                "atr": round(scan.atr, 2) if scan.atr else 0,
+            },
+        }
+
+        if scan.found:
+            snapshot["p4_gate"] = {
+                "passed": gate.passed,
+                "score": gate.score,
+                "threshold": gate.pass_threshold,
+                "mdd_mode": gate.mdd_mode,
+                "size_mult": gate.size_mult,
+                "reason": gate.reason,
+            }
+
+        if signal:
+            snapshot["p5_execute"] = {
+                "direction": signal.direction,
+                "entry": signal.entry_price,
+                "sl": signal.stop_loss,
+                "leverage": signal.leverage,
+                "notional": signal.notional_usd,
+                "tp_count": len(signal.take_profits),
+            }
+
+        import asyncio
+        try:
+            asyncio.get_event_loop().create_task(
+                self._write_log(agent_id, symbol, snapshot, signal is not None)
+            )
+        except RuntimeError:
+            pass  # No event loop running (e.g., in sync tests)
+
+    async def _write_log(
+        self, agent_id: str, symbol: str, snapshot: dict, signal_generated: bool,
+    ):
+        """Async DB write for pipeline log."""
+        try:
+            await self.db.execute(
+                """
+                INSERT INTO pipeline_logs (timestamp, agent_id, symbol, phase_snapshot, signal_generated)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (int(time.time() * 1000), agent_id, symbol, json.dumps(snapshot), signal_generated),
+            )
+            await self.db.commit()
+        except Exception:
+            logger.debug("Pipeline log write failed", exc_info=True)
 
     def on_candle_close(self, symbol: str, timeframe: str):
         """

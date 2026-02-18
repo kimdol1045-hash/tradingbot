@@ -10,14 +10,18 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 
 from src.collector.collector import DataCollector
-from src.notify.telegram import notify_system
+from src.exchange.executor import OrderExecutor
+from src.exchange.reconciliation import reconcile_on_startup
+from src.notify.telegram import notify_error, notify_system
 from src.openclaw.evolver import Evolver
 from src.pipeline.equity_tracker import EquityTracker
 from src.pipeline.position_manager import PositionManager
 from src.pipeline.runner import PipelineRunner
-from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, LOG_LEVEL
+from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, HYPERLIQUID_KEY, LOG_LEVEL
+from src.utils.db import init_db
 from src.utils.health import register_components, start_health_server
 
 # ── Logging Setup ──
@@ -34,12 +38,52 @@ TOTAL_CAPITAL = float(os.getenv("TOTAL_CAPITAL", "10000"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 
 
+def _setup_global_exception_handler():
+    """Install global handlers for uncaught exceptions."""
+    def handle_exception(loop, context):
+        msg = context.get("exception", context["message"])
+        logger.error("Unhandled async exception: %s", msg, exc_info=context.get("exception"))
+        asyncio.ensure_future(
+            notify_error(f"Unhandled exception: {msg}")
+        )
+
+    def handle_sync_exception(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logger.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+
+    asyncio.get_event_loop().set_exception_handler(handle_exception)
+    sys.excepthook = handle_sync_exception
+
+
 async def main() -> None:
+    # ── Global error handling ──
+    _setup_global_exception_handler()
+
+    # ── Database ──
+    db = await init_db()
+
     # ── Initialize components ──
     collector = DataCollector()
     equity_tracker = EquityTracker()
-    position_mgr = PositionManager(dry_run=DRY_RUN)
-    pipeline = PipelineRunner(candle_cache=collector.cache, position_manager=position_mgr)
+
+    # Wallet address for exchange queries (derived from private key)
+    wallet_address = ""
+    if HYPERLIQUID_KEY and not DRY_RUN:
+        try:
+            import eth_account
+            wallet_address = eth_account.Account.from_key(HYPERLIQUID_KEY).address
+        except Exception:
+            logger.warning("Could not derive wallet address from key")
+
+    executor = OrderExecutor(db=db, dry_run=DRY_RUN, wallet_address=wallet_address)
+    position_mgr = PositionManager(executor=executor, dry_run=DRY_RUN)
+    pipeline = PipelineRunner(
+        candle_cache=collector.cache,
+        position_manager=position_mgr,
+        db=db,
+    )
     evolver = Evolver(equity_tracker=equity_tracker, position_manager=position_mgr)
 
     # Allocate capital per agent
@@ -67,14 +111,23 @@ async def main() -> None:
         loop.add_signal_handler(
             sig,
             lambda: asyncio.create_task(
-                shutdown(collector, position_mgr, evolver),
+                shutdown(collector, position_mgr, evolver, db),
             ),
         )
 
     try:
+        # ── Reconciliation on startup ──
+        logger.info("Running startup reconciliation...")
+        recon = await reconcile_on_startup(executor, db)
+        logger.info(
+            "Reconciliation: matched=%d, stale=%d, orphaned=%d",
+            recon["matched"], recon["stale"], recon["orphaned"],
+        )
+
+        # ── Start collector ──
         await collector.start(symbols=ALL_SYMBOLS)
 
-        # Backfill from Hyperliquid (TF-specific: 5m:7d, 15m:14d, 1h:30d, 4h:90d)
+        # Backfill from Hyperliquid
         logger.info("Backfilling historical data from Hyperliquid...")
         await collector.backfill(symbols=ALL_SYMBOLS)
         logger.info("Backfill complete, starting live trading")
@@ -83,7 +136,8 @@ async def main() -> None:
             f"System started (dry_run={DRY_RUN})\n"
             f"Capital: ${TOTAL_CAPITAL:,.0f}\n"
             f"Agents: {', '.join(AGENT_PROFILES.keys())}\n"
-            f"Symbols: {', '.join(ALL_SYMBOLS)}"
+            f"Symbols: {', '.join(ALL_SYMBOLS)}\n"
+            f"Reconciliation: {recon['matched']} matched, {recon['stale']} stale, {recon['orphaned']} orphaned"
         )
 
         # Run all components concurrently
@@ -95,10 +149,17 @@ async def main() -> None:
         )
     except KeyboardInterrupt:
         pass
+    except Exception:
+        logger.critical("Fatal error in main loop", exc_info=True)
+        try:
+            await notify_error("Fatal error — system shutting down")
+        except Exception:
+            pass
     finally:
         evolver.stop()
         position_mgr.stop()
         await collector.stop()
+        await db.close()
         await notify_system("System stopped")
 
 
@@ -106,11 +167,14 @@ async def shutdown(
     collector: DataCollector,
     position_mgr: PositionManager,
     evolver: Evolver,
+    db,
 ) -> None:
     logger.info("Shutdown signal received")
     evolver.stop()
     position_mgr.stop()
     await collector.stop()
+    if db:
+        await db.close()
     tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     for task in tasks:
         task.cancel()

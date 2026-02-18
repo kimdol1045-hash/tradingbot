@@ -1,6 +1,6 @@
 """
 Position Manager — order execution, monitoring, and lifecycle management.
-Submits orders to Hyperliquid, monitors fills, updates trailing stops,
+Submits orders via OrderExecutor, monitors fills, updates trailing stops,
 handles timeouts and emergency SL tightening.
 """
 from __future__ import annotations
@@ -39,13 +39,13 @@ class ManagedPosition:
 class PositionManager:
     """Manages position lifecycle: entry → monitor → exit."""
 
-    def __init__(self, exchange=None, dry_run: bool = True):
+    def __init__(self, executor=None, dry_run: bool = True):
         """
         Args:
-            exchange: HyperliquidExchange wrapper (None for dry-run)
+            executor: OrderExecutor instance (or None for legacy mode)
             dry_run: If True, simulate orders without sending to exchange
         """
-        self.exchange = exchange
+        self.executor = executor
         self.dry_run = dry_run
         self.positions: dict[str, ManagedPosition] = {}  # signal_id → position
         self._running = False
@@ -85,41 +85,37 @@ class PositionManager:
         )
 
     async def _execute_entry(self, pos: ManagedPosition):
-        """Send entry order to exchange."""
-        if self.exchange is None or self.dry_run:
+        """Send entry order via executor."""
+        sig = pos.signal
+
+        if self.executor is None:
+            # Legacy fallback: simulate fill
             self._simulate_fill(pos)
             return
 
-        sig = pos.signal
         try:
-            # Update leverage first
-            await self.exchange.update_leverage(sig.symbol, int(sig.leverage))
+            result = await self.executor.execute_signal(sig)
 
-            # Place entry with SL/TP
-            result = await self.exchange.place_entry_with_sl_tp(
-                symbol=sig.symbol,
-                is_buy=(sig.direction == "LONG"),
-                size=pos.remaining_qty,
-                entry_price=None,  # market order
-                sl_price=sig.stop_loss,
-                tp_levels=sig.take_profits,
-            )
-
-            if result and result.get("status") == "ok":
+            if result.success:
                 pos.status = "open"
-                pos.exchange_order_id = result.get("order_id", "")
-                pos.fill_price = result.get("avg_price", sig.entry_price)
-                pos.fill_qty = pos.remaining_qty
+                pos.exchange_order_id = result.order_id
+                pos.fill_price = result.fill_price
+                pos.fill_qty = result.fill_qty
                 pos.filled_ts = int(time.time() * 1000)
-                logger.info("FILLED: %s %s @ %.2f", sig.direction, sig.symbol, pos.fill_price)
+                pos.sl_order_id = result.sl_order_id
+                pos.tp_order_ids = result.tp_order_ids
+                logger.info(
+                    "FILLED: %s %s @ %.2f (dry=%s)",
+                    sig.direction, sig.symbol, pos.fill_price, result.dry_run,
+                )
             else:
                 pos.status = "closed"
-                pos.close_reason = "ORDER_FAILED"
-                logger.error("Order failed: %s", result)
+                pos.close_reason = f"ORDER_FAILED:{result.error}"
+                logger.error("Order failed for %s: %s", sig.signal_id[:12], result.error)
         except Exception:
-            logger.exception("Exchange error for signal %s", sig.signal_id)
+            logger.exception("Executor error for signal %s", sig.signal_id[:12])
             pos.status = "closed"
-            pos.close_reason = "EXCHANGE_ERROR"
+            pos.close_reason = "EXECUTOR_ERROR"
 
     def update_trailing_stops(self, current_prices: dict[str, float]):
         """Update trailing stops for open positions that have hit TP1."""
@@ -228,6 +224,15 @@ class PositionManager:
             "CLOSED %s %s: pnl=%.2f reason=%s",
             sig.symbol, sig.signal_id[:8], pos.pnl, reason,
         )
+
+        # Record exit in DB via executor
+        if self.executor:
+            pnl_pct = (pos.pnl / (sig.notional_usd / sig.leverage) * 100) if sig.leverage > 0 else 0
+            asyncio.ensure_future(
+                self.executor.record_exit(
+                    sig.signal_id, close_price, pos.pnl, pnl_pct, reason,
+                )
+            )
 
     def get_open_positions(self, agent_id: str | None = None) -> list[ManagedPosition]:
         """Get all open positions, optionally filtered by agent."""
