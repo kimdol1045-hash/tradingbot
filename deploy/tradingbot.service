@@ -1,0 +1,37 @@
+[Unit]
+Description=4-Agent Crypto Futures Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tradingbot
+Group=tradingbot
+WorkingDirectory=/opt/tradingbot
+ExecStart=/opt/tradingbot/.venv/bin/python -m src.main
+EnvironmentFile=/opt/tradingbot/.env
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Watchdog: health check via curl every 60s
+WatchdogSec=120
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tradingbot
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/tradingbot/data /opt/tradingbot/params
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
