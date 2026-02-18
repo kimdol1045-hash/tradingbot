@@ -208,6 +208,132 @@ def percentile_rank(value: float, values_history: np.ndarray) -> float:
     return float(np.sum(values_history <= value) / len(values_history) * 100)
 
 
+def ichimoku(
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray,
+    tenkan_period: int = 9, kijun_period: int = 26, senkou_b_period: int = 52,
+) -> dict[str, float]:
+    """
+    Ichimoku Cloud components (current values only).
+    Returns dict with tenkan, kijun, senkou_a, senkou_b, and price vs cloud info.
+    """
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+
+    result = {
+        "tenkan": np.nan, "kijun": np.nan,
+        "senkou_a": np.nan, "senkou_b": np.nan,
+        "price": c[-1] if len(c) > 0 else np.nan,
+        "above_cloud": False, "below_cloud": False, "in_cloud": True,
+        "tenkan_above_kijun": False,
+    }
+
+    if len(h) < senkou_b_period:
+        return result
+
+    # Tenkan-sen: (highest high + lowest low) / 2 over tenkan_period
+    tenkan = (np.max(h[-tenkan_period:]) + np.min(l[-tenkan_period:])) / 2
+    # Kijun-sen: same over kijun_period
+    kijun = (np.max(h[-kijun_period:]) + np.min(l[-kijun_period:])) / 2
+    # Senkou Span A: (tenkan + kijun) / 2
+    senkou_a = (tenkan + kijun) / 2
+    # Senkou Span B: (highest high + lowest low) / 2 over senkou_b_period
+    senkou_b = (np.max(h[-senkou_b_period:]) + np.min(l[-senkou_b_period:])) / 2
+
+    price = c[-1]
+    cloud_top = max(senkou_a, senkou_b)
+    cloud_bottom = min(senkou_a, senkou_b)
+
+    result["tenkan"] = float(tenkan)
+    result["kijun"] = float(kijun)
+    result["senkou_a"] = float(senkou_a)
+    result["senkou_b"] = float(senkou_b)
+    result["above_cloud"] = price > cloud_top
+    result["below_cloud"] = price < cloud_bottom
+    result["in_cloud"] = cloud_bottom <= price <= cloud_top
+    result["tenkan_above_kijun"] = tenkan > kijun
+
+    return result
+
+
+def adx(
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14,
+) -> dict[str, float]:
+    """
+    Average Directional Index with +DI and -DI.
+    Returns dict with adx, plus_di, minus_di values.
+    """
+    h = np.asarray(highs, dtype=np.float64)
+    l = np.asarray(lows, dtype=np.float64)
+    c = np.asarray(closes, dtype=np.float64)
+
+    result = {"adx": 0.0, "plus_di": 0.0, "minus_di": 0.0}
+    if len(h) < period + 1:
+        return result
+
+    # True Range
+    prev_c = np.roll(c, 1)
+    prev_c[0] = c[0]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+
+    # Directional Movement
+    up_move = h[1:] - h[:-1]
+    down_move = l[:-1] - l[1:]
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    tr = tr[1:]  # align with dm arrays
+
+    if len(tr) < period:
+        return result
+
+    # Smoothed TR, +DM, -DM (Wilder's smoothing)
+    atr_val = np.mean(tr[:period])
+    plus_dm_smooth = np.mean(plus_dm[:period])
+    minus_dm_smooth = np.mean(minus_dm[:period])
+
+    dx_values = []
+    for i in range(period, len(tr)):
+        atr_val = (atr_val * (period - 1) + tr[i]) / period
+        plus_dm_smooth = (plus_dm_smooth * (period - 1) + plus_dm[i]) / period
+        minus_dm_smooth = (minus_dm_smooth * (period - 1) + minus_dm[i]) / period
+
+        if atr_val > 0:
+            plus_di = (plus_dm_smooth / atr_val) * 100
+            minus_di = (minus_dm_smooth / atr_val) * 100
+        else:
+            plus_di = minus_di = 0.0
+
+        di_sum = plus_di + minus_di
+        if di_sum > 0:
+            dx_values.append(abs(plus_di - minus_di) / di_sum * 100)
+        else:
+            dx_values.append(0.0)
+
+    if len(dx_values) < period:
+        # Use what we have
+        if dx_values:
+            result["adx"] = float(np.mean(dx_values))
+        # Compute final DI values
+        if atr_val > 0:
+            result["plus_di"] = float((plus_dm_smooth / atr_val) * 100)
+            result["minus_di"] = float((minus_dm_smooth / atr_val) * 100)
+        return result
+
+    # ADX = smoothed average of DX
+    adx_val = np.mean(dx_values[:period])
+    for i in range(period, len(dx_values)):
+        adx_val = (adx_val * (period - 1) + dx_values[i]) / period
+
+    result["adx"] = float(adx_val)
+    if atr_val > 0:
+        result["plus_di"] = float((plus_dm_smooth / atr_val) * 100)
+        result["minus_di"] = float((minus_dm_smooth / atr_val) * 100)
+
+    return result
+
+
 def candles_to_arrays(candles: list[dict]) -> dict[str, np.ndarray]:
     """Convert list of candle dicts to numpy arrays."""
     if not candles:

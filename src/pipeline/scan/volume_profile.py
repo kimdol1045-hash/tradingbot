@@ -17,8 +17,22 @@ def detect_volume_profile(candles: list[dict], params: dict) -> dict:
     Returns:
         {poc_price, value_area_high, value_area_low, bins, profile}
     """
-    if len(candles) < 20:
+    if len(candles) < 5:
         return {"poc_price": 0.0, "value_area_high": 0.0, "value_area_low": 0.0}
+
+    # For 5-19 candles: simplified POC using VWAP-like approach
+    if len(candles) < 20:
+        closes = [c["close"] for c in candles]
+        volumes = [c["volume"] for c in candles]
+        total_vol = sum(volumes) or 1.0
+        vwap = sum(c * v for c, v in zip(closes, volumes)) / total_vol
+        highs = [c["high"] for c in candles]
+        lows = [c["low"] for c in candles]
+        return {
+            "poc_price": vwap,
+            "value_area_high": max(highs),
+            "value_area_low": min(lows),
+        }
 
     arr = candles_to_arrays(candles)
     closes = arr["close"]

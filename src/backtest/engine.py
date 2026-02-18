@@ -116,7 +116,13 @@ def _simulate_position(
     """
     sig = pos.signal
     sl = sig.stop_loss
-    tps = sorted(sig.take_profits, key=lambda t: t.get("price", 0))
+    # Sort TPs by distance from entry (nearest first)
+    # LONG: ascending (lower TP = nearer), SHORT: descending (higher TP = nearer)
+    tps = sorted(
+        sig.take_profits,
+        key=lambda t: t.get("price", 0),
+        reverse=(sig.direction == "SHORT"),
+    )
     remaining_ratio = 1.0
     realized_parts: list[float] = []
 
@@ -184,7 +190,7 @@ def _simulate_position(
                         sl = pos.fill_price - (pos.fill_price * 0.001)
                         pos.trailing_sl = sl
 
-                if remaining_ratio <= 0.01:
+                if remaining_ratio <= 0.02:
                     pos.close_price = tp_price
                     pos.close_ts = candle["timestamp"]
                     pos.status = "closed"
@@ -227,7 +233,7 @@ def _simulate_position(
         pos.close_reason = "END_OF_DATA"
 
     # Calculate final PnL
-    if pos.close_price > 0 and remaining_ratio > 0.01:
+    if pos.close_price > 0 and remaining_ratio > 0.02:
         remaining_pnl = _pnl_for_direction(sig.direction, pos.fill_price, pos.close_price) * (
             sig.notional_usd / pos.fill_price
         ) * remaining_ratio

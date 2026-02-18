@@ -23,6 +23,36 @@ from src.utils.indicators import (
 
 logger = logging.getLogger(__name__)
 
+# ═══ Raw-to-Score Fallback (no history) ═══
+
+def _raw_to_score(component: str, raw_value: float) -> float:
+    """
+    Map raw DNA value directly to 0~100 when z-score history is unavailable.
+    Each component has its own natural range.
+    """
+    if component == "hurst":
+        # hurst * direction: range approx [-1.0, +1.0]
+        # +1 = strong uptrend, -1 = strong downtrend, 0 = random/sideways
+        return float(np.clip((raw_value + 1.0) / 2.0 * 100, 0, 100))
+    elif component == "entropy":
+        # range [0, 1]: high = uncertain. Invert so high entropy → low score
+        return float(np.clip((1.0 - raw_value) * 100, 0, 100))
+    elif component == "liquidation":
+        # range [0, 1]: high = risky. Invert so high pressure → low score
+        return float(np.clip((1.0 - raw_value) * 100, 0, 100))
+    elif component == "funding":
+        # range [-1, +1]: positive = short favorable
+        return float(np.clip((raw_value + 1.0) / 2.0 * 100, 0, 100))
+    elif component == "oi_momentum":
+        # range [-1, +1]: positive = bullish
+        return float(np.clip((raw_value + 1.0) / 2.0 * 100, 0, 100))
+    elif component == "liq_density":
+        # range [0, 1]: high = dangerous. Invert
+        return float(np.clip((1.0 - raw_value) * 100, 0, 100))
+    else:
+        return 50.0
+
+
 # ═══ Regime Definitions ═══
 
 REGIMES = {
@@ -201,12 +231,18 @@ def _calculate_dna(
     raw["oi_momentum"] = _calculate_oi_momentum(candles)
     raw["liq_density"] = _calculate_liquidation_density(candles)
 
-    # Z-score normalize each component
+    # Z-score normalize each component (or use raw fallback)
     history = history or {}
     components = {}
+    has_history = False
     for key, val in raw.items():
         hist = np.array(history.get(key, []), dtype=np.float64)
-        components[key] = rolling_zscore(val, hist)
+        if len(hist) >= 10:
+            components[key] = rolling_zscore(val, hist)
+            has_history = True
+        else:
+            # Fallback: map raw value directly to 0~100 scale
+            components[key] = _raw_to_score(key, val)
 
     # Re-normalize weights to sum = 1.0
     w_sum = sum(weights.get(k, 0) for k in components)
@@ -218,7 +254,9 @@ def _calculate_dna(
     score = sum(components[k] * norm_weights[k] for k in components)
 
     # Confidence: based on how extreme the score is (distance from 50)
-    confidence = min(abs(score - 50) / 30, 1.0)
+    # Use wider range when no history (raw fallback is more spread)
+    divisor = 30 if has_history else 20
+    confidence = min(abs(score - 50) / divisor, 1.0)
 
     return {
         "score": score,

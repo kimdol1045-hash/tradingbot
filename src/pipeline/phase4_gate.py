@@ -13,7 +13,7 @@ import numpy as np
 
 from src.pipeline.models import GateResult
 from src.utils.config import COST_MODEL, MDD_POLICIES
-from src.utils.indicators import candles_to_arrays, rsi
+from src.utils.indicators import adx, candles_to_arrays, ichimoku, rsi
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,104 @@ def _score_funding_alignment(candles: list[dict], direction: str) -> float:
         return 3.0
 
 
+def _score_ichimoku(candles: list[dict], direction: str) -> float:
+    """Ichimoku Cloud evaluation: 0~15 points."""
+    arr = candles_to_arrays(candles)
+    if len(arr["close"]) < 52:
+        return 7.5  # Not enough data → neutral
+
+    ichi = ichimoku(arr["high"], arr["low"], arr["close"])
+
+    if direction == "LONG":
+        if ichi["above_cloud"] and ichi["tenkan_above_kijun"]:
+            return 14.0  # Strong bullish alignment
+        elif ichi["above_cloud"]:
+            return 11.0  # Price above cloud but TK cross weak
+        elif ichi["in_cloud"] and ichi["tenkan_above_kijun"]:
+            return 8.0   # Emerging from cloud
+        elif ichi["in_cloud"]:
+            return 5.0   # Undecided
+        else:
+            return 2.0   # Below cloud = bearish for long
+    else:  # SHORT
+        if ichi["below_cloud"] and not ichi["tenkan_above_kijun"]:
+            return 14.0  # Strong bearish alignment
+        elif ichi["below_cloud"]:
+            return 11.0
+        elif ichi["in_cloud"] and not ichi["tenkan_above_kijun"]:
+            return 8.0
+        elif ichi["in_cloud"]:
+            return 5.0
+        else:
+            return 2.0   # Above cloud = bullish for short
+
+
+def _score_adx(candles: list[dict], direction: str) -> float:
+    """ADX trend strength evaluation: 0~10 points."""
+    arr = candles_to_arrays(candles)
+    if len(arr["close"]) < 30:
+        return 5.0  # Not enough data → neutral
+
+    adx_result = adx(arr["high"], arr["low"], arr["close"], period=14)
+    adx_val = adx_result["adx"]
+    plus_di = adx_result["plus_di"]
+    minus_di = adx_result["minus_di"]
+
+    # Direction alignment
+    di_aligned = (direction == "LONG" and plus_di > minus_di) or \
+                 (direction == "SHORT" and minus_di > plus_di)
+
+    if adx_val >= 25:
+        # Strong trend
+        return 9.0 if di_aligned else 2.0
+    elif adx_val >= 20:
+        # Moderate trend
+        return 7.0 if di_aligned else 4.0
+    else:
+        # Weak/no trend — slightly favor as range conditions can work
+        return 5.0
+
+
+def _score_liq_risk(candles: list[dict]) -> float:
+    """Liquidation risk evaluation: 0~10 points. Higher = safer."""
+    if len(candles) < 10:
+        return 5.0
+
+    # Recent liquidation volume relative to normal trading volume
+    recent = candles[-10:]
+    avg_volume = np.mean([c["volume"] for c in recent]) or 1.0
+    avg_liq = np.mean([c.get("liquidation_vol", 0) or 0 for c in recent])
+
+    # Liquidation ratio: high liquidation = risky environment
+    liq_ratio = avg_liq / avg_volume if avg_volume > 0 else 0
+
+    # Open interest changes — rapid OI increase can mean leveraged buildup
+    oi_values = [c.get("open_interest", 0) or 0 for c in recent]
+    if oi_values[0] > 0:
+        oi_change = (oi_values[-1] - oi_values[0]) / oi_values[0]
+    else:
+        oi_change = 0.0
+
+    # Score: low liq + moderate OI = safe (high score)
+    score = 7.0  # base
+
+    # Penalize high liquidation activity
+    if liq_ratio > 0.5:
+        score -= 4.0
+    elif liq_ratio > 0.2:
+        score -= 2.0
+    elif liq_ratio > 0.1:
+        score -= 1.0
+
+    # Penalize rapid OI buildup (potential cascade risk)
+    if abs(oi_change) > 0.15:
+        score -= 2.0
+    elif abs(oi_change) > 0.08:
+        score -= 1.0
+
+    return float(np.clip(score, 0.0, 10.0))
+
+
 def _score_atr_regime(candles: list[dict], scan_atr: float) -> float:
     """ATR regime: 0~10 points. Moderate ATR = best."""
     arr = candles_to_arrays(candles)
@@ -167,10 +265,12 @@ def _calculate_tech_score(
     funding_score = _score_funding_alignment(candles, direction)  # 0~10
     atr_score = _score_atr_regime(candles, scan_atr)        # 0~10
 
-    # Remaining budget for unimplemented (Ichimoku, ADX, Liq_Risk) → neutral
-    ichimoku_score = 7.5    # Placeholder: 0~15
-    adx_score = 5.0         # Placeholder: 0~10
-    liq_risk_score = 5.0    # Placeholder: 0~10
+    # Ichimoku Cloud: 0~15
+    ichimoku_score = _score_ichimoku(candles, direction)
+    # ADX trend strength: 0~10
+    adx_score = _score_adx(candles, direction)
+    # Liquidation risk: 0~10
+    liq_risk_score = _score_liq_risk(candles)
 
     return rsi_score + vol_score + htf_score + funding_score + atr_score + ichimoku_score + adx_score + liq_risk_score
 

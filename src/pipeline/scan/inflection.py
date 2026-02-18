@@ -32,10 +32,10 @@ def detect_t1_sr_reaction(
 
     for level in sr_levels:
         distance = abs(close - level["price"])
-        if distance > atr_val * 1.0:
+        if distance > atr_val * 1.5:
             continue
 
-        proximity = 1.0 - (distance / (atr_val * 1.0))
+        proximity = 1.0 - (distance / (atr_val * 1.5))
         strength_bonus = level["strength"] * 10
 
         if level["type"] == "support" and close > prev_close and close >= level["price"]:
@@ -102,10 +102,10 @@ def detect_t3_breakout_retest(
         crossed_below = any(c > lp for c in closes[:-2]) and closes[-2] < lp
 
         distance = abs(close - lp)
-        if distance > atr_val * 0.3:
+        if distance > atr_val * 0.5:
             continue
 
-        proximity = 1.0 - (distance / (atr_val * 0.3))
+        proximity = 1.0 - (distance / (atr_val * 0.5))
 
         if crossed_above and close >= lp:
             # Broke above resistance, retesting as support

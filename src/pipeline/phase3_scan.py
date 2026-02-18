@@ -51,7 +51,7 @@ SYNERGY_COMBOS: dict[tuple[str, str], int] = {
 
 CANDLESTICK_SYNERGY = {"tier_1": 5, "tier_2": 8, "tier_3": 12}
 
-MTF_BONUS = {"A": 15, "B": 10, "C": 5, "D": -5, "F": -15, "NONE": 0}
+MTF_BONUS = {"A": 15, "B": 10, "C": 5, "D": -3, "F": -8, "NONE": 0}
 
 PATTERN_BONUS_CAP = 25
 DIRECTION_CONFLICT_PENALTY = -10
@@ -128,7 +128,8 @@ def _compute_scan_score(
     type_key = primary_type.lower().split("_")[0]  # "t1", "t2", etc.
     regime_weights = REGIME_TYPE_WEIGHTS.get(regime, REGIME_TYPE_WEIGHTS["SIDEWAYS"])
     regime_mult = regime_weights.get(type_key, 0.5)
-    base_score = primary["score"] * regime_mult
+    # Quality floor: strong inflections keep at least 40% of their raw score
+    base_score = primary["score"] * max(regime_mult, 0.40)
 
     # Secondary inflection bonus
     secondary_bonus = 0.0
@@ -259,8 +260,15 @@ def phase3_scan(
         inflections, candlestick_pats, chart_pats, regime, mtf_grade, scan_params,
     )
 
-    # Minimum score check
-    min_score = scan_params.get("min_score", 65)
+    # Minimum score check — adaptive by regime
+    # Trending regimes: patterns are more reliable → lower threshold
+    # Volatile/sideways: need more confirmation → higher threshold
+    regime_min_scores = {
+        "STRONG_UPTREND": 20, "WEAK_UPTREND": 25, "SIDEWAYS": 30,
+        "WEAK_DOWNTREND": 25, "STRONG_DOWNTREND": 20, "VOLATILE": 40,
+    }
+    default_min = scan_params.get("min_score", 25)
+    min_score = regime_min_scores.get(regime, default_min)
     found = score >= min_score and primary_type is not None
 
     # Build pattern result
