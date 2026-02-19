@@ -248,10 +248,6 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 - [x] `main.py`: 글로벌 예외 핸들러, DB 초기화, 시작시 reconciliation
 - [x] `position_manager.py`: OrderExecutor 통합, exit 시 DB 기록
 
-**미완료 (수동 운영 필요):**
-- [ ] 테스트넷 Paper Trading 24시간 무중단 테스트
-- [ ] WS 재연결 장기 안정성 검증
-
 ---
 
 ### ✅ Sprint 10: 분석 도구 + 통합 테스트 (코드 완료)
@@ -273,17 +269,6 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 
 **테스트 결과:** 15/15 passed, 0 failed
 
-**미완료 (수동 운영 필요):**
-- [ ] 테스트넷 Paper Trading 24시간 무중단 테스트
-- [ ] 실 데이터 에이전트 상관관계 분석
-- [ ] 최종 파라미터 확정 (백테스트 + Paper Trading 종합)
-- [ ] 클라우드 배포 (VPS Docker)
-- [ ] 메인넷 전환 (HYPERLIQUID_TESTNET=false)
-- [ ] 소액 실전 ($100~300, DRY_RUN=false)
-- [ ] 점진적 자본 확대 (PF ≥ 1.5 확인 후)
-
-**완료 기준**: 실전 $100~300으로 1주 운영. PF ≥ 1.5, MDD ≤ 5%.
-
 ---
 
 ## 전체 진행 현황
@@ -298,10 +283,374 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 | **S6** | OpenClaw Evolver (GPT-4o) + 과거 데이터 로더 | ✅ 완료 |
 | **S7** | 프로덕션 배포 (Docker, systemd, 헬스체크, preflight) | ✅ 완료 |
 | **S8** | 백테스트 엔진 + 6개 버그 수정 | ✅ 완료 |
-| **S9** | Paper Trading + 안정성 (코드 완료, 운영 테스트 남음) | ✅ 완료 |
-| **S10** | 분석 도구 + 통합 테스트 (코드 완료, 운영 전환 남음) | ✅ 완료 |
+| **S9** | Paper Trading + 안정성 | ✅ 완료 |
+| **S10** | 분석 도구 + 통합 테스트 | ✅ 완료 |
 
-**진행률: 10/10 스프린트 코드 완료 (운영 전환만 남음)**
+**코드 진행률: 10/10 스프린트 완료**
+
+---
+
+---
+
+# 운영 전환 체크리스트
+
+> 코드 개발은 완료됨. 아래는 실전 트레이딩까지 남은 **수동 셋업 + 운영 작업** 전체 목록.
+
+---
+
+## Phase A: 계정 및 API 키 준비
+
+### A-1. Hyperliquid 거래소 계정
+
+| 단계 | 작업 | 상세 |
+|------|------|------|
+| 1 | Hyperliquid 가입 | https://app.hyperliquid.xyz |
+| 2 | Arbitrum 네트워크로 USDC 입금 | 브릿지 또는 CEX → Arbitrum 출금 |
+| 3 | 트레이딩 지갑 프라이빗 키 확보 | MetaMask 등에서 hex 형태 export |
+| 4 | 테스트넷 접속 확인 | https://app.hyperliquid-testnet.xyz (테스트넷 faucet으로 테스트 USDC 수령) |
+
+**결과물**: `.env`에 아래 값 입력
+```
+HYPERLIQUID_KEY=0x프라이빗키_hex_문자열
+HYPERLIQUID_SECRET=                          # 현재 사용 안함, 빈 값 OK
+HYPERLIQUID_TESTNET=true                     # 처음엔 테스트넷
+```
+
+### A-2. Telegram 봇 + 슈퍼그룹
+
+| 단계 | 작업 | 상세 |
+|------|------|------|
+| 1 | @BotFather에서 봇 생성 | `/newbot` → 토큰 복사 (형식: `1234567890:ABC...`) |
+| 2 | 슈퍼그룹 생성 | Telegram 앱 → 그룹 만들기 → 슈퍼그룹으로 전환 |
+| 3 | Topics 활성화 | 그룹 설정 → Topics 켜기 |
+| 4 | 7개 토픽 생성 | signals, fills, exits, safety, errors, daily_report, system |
+| 5 | 봇을 그룹에 관리자로 추가 | 메시지 보내기 + 토픽 관리 권한 필요 |
+| 6 | Chat ID 확인 | 그룹에 메시지 보낸 후 `https://api.telegram.org/bot<TOKEN>/getUpdates` 에서 음수 chat_id 확인 |
+| 7 | 토픽별 thread_id 확인 | 각 토픽에 메시지 보낸 후 getUpdates에서 `message_thread_id` 값 확인 |
+
+**결과물**:
+```
+# .env
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhiJklMno...
+TELEGRAM_CHAT_ID=-1001234567890
+```
+
+**추가 코드 설정** — `src/notify/telegram.py` 의 `TOPIC_IDS` 딕셔너리에 thread_id 입력:
+```python
+TOPIC_IDS: dict[str, int | None] = {
+    "signals":      12,    # 실제 thread_id로 교체
+    "fills":        13,
+    "exits":        14,
+    "safety":       15,
+    "errors":       16,
+    "daily_report": 17,
+    "system":       18,
+}
+```
+> `None`으로 두면 모든 메시지가 그룹 메인 채팅으로 감 (동작은 하지만 분류 안됨)
+
+### A-3. OpenAI API (선택사항 — Evolver용)
+
+| 단계 | 작업 | 상세 |
+|------|------|------|
+| 1 | OpenAI 계정 + API 키 발급 | https://platform.openai.com/api-keys |
+| 2 | GPT-4o 접근 확인 | `gpt-4o` 모델 사용 가능한 플랜 필요 |
+| 3 | 사용량 제한 설정 권장 | 4시간마다 × 4에이전트 호출 → 하루 ~24회. 월 $5~15 예상 |
+
+**결과물**: `.env`에 `OPENAI_API_KEY=sk-...`
+
+> **없으면?** 봇은 정상 트레이딩하지만 파라미터 자동 진화 비활성 (수동 튜닝 필요)
+
+---
+
+## Phase B: 로컬 환경 검증
+
+### B-1. 의존성 설치 + Preflight
+
+```bash
+# 가상환경 생성 (최초 1회)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# .env 파일 작성
+cp .env.example .env
+# 위 Phase A 결과물로 실제 값 입력
+
+# 사전 점검 실행
+python scripts/preflight.py
+```
+
+**기대 결과**: 모든 항목 ✓ (API 연결 포함)
+
+### B-2. 통합 테스트 실행
+
+```bash
+python scripts/integration_test.py
+```
+
+**기대 결과**: 15/15 passed
+
+---
+
+## Phase C: 과거 데이터 + 백테스트
+
+### C-1. 과거 캔들 데이터 다운로드
+
+```bash
+# Hyperliquid 3년치 데이터 (BTC, ETH, SOL, XRP, DOGE, AVAX, LINK)
+python -m src.collector.historical --years 3 --source hyperliquid
+```
+
+> 소요 시간: 심볼당 수 분 ~ 수십 분 (API rate limit 따라 다름)
+
+### C-2. 실 데이터 백테스트
+
+```bash
+# 전체 에이전트 백테스트
+python -m src.backtest
+
+# 에이전트별 개별 실행도 가능
+python -m src.backtest --agent s1
+python -m src.backtest --agent s3
+```
+
+**확인 포인트**:
+- [ ] 에이전트별 PF ≥ 1.2 이상
+- [ ] 최대 MDD ≤ 10%
+- [ ] 거래 수가 합리적 (일 0~5건 수준)
+- [ ] SHORT TP가 정상 동작하는지
+
+### C-3. 백테스트 결과 분석
+
+```bash
+python scripts/analyze.py --patterns --correlation
+```
+
+**확인 포인트**:
+- [ ] 패턴별 승률 확인 → 승률 30% 미만 패턴이 있으면 가중치 하향 고려
+- [ ] 에이전트 간 상관관계 ≤ 0.5 (너무 높으면 자본 배분 조정)
+
+---
+
+## Phase D: 테스트넷 Paper Trading
+
+### D-1. 테스트넷 DRY_RUN 실행
+
+```bash
+# .env 확인: HYPERLIQUID_TESTNET=true, DRY_RUN=true
+DRY_RUN=true python -m src.main
+```
+
+**모니터링 (별도 터미널)**:
+```bash
+# 헬스체크
+curl http://localhost:8080/health | python -m json.tool
+
+# 로그 실시간 확인
+tail -f data/tradingbot.log    # 또는 콘솔 출력 확인
+```
+
+### D-2. 24시간+ 무중단 테스트 (핵심)
+
+| 확인 항목 | 기준 | 비고 |
+|-----------|------|------|
+| WS 연결 유지 | 24시간 중 재연결 ≤ 3회 | 로그에서 `reconnect` 검색 |
+| 파이프라인 실행 | 5분마다 S1→S4 로그 출력 | `pipeline_logs` 테이블 확인 |
+| 메모리 누수 | RSS ≤ 500MB 유지 | `ps aux \| grep main` |
+| 헬스체크 응답 | 200 OK 지속 | `curl` 주기적 호출 |
+| Telegram 알림 | system 토픽에 시작 메시지 수신 | 봇이 그룹에 메시지 보내는지 |
+| DB 기록 | candles, pipeline_logs 증가 | `sqlite3 data/trades.db "SELECT COUNT(*) FROM pipeline_logs"` |
+| 에러 없음 | ERROR 레벨 로그 0건 | `grep ERROR` 로 확인 |
+
+### D-3. 테스트넷 실제 주문 테스트 (선택)
+
+```bash
+# DRY_RUN=false로 테스트넷에서 실제 주문 테스트
+# .env: HYPERLIQUID_TESTNET=true, DRY_RUN=false, TOTAL_CAPITAL=1000
+DRY_RUN=false python -m src.main
+```
+
+**확인 포인트**:
+- [ ] 테스트넷 Hyperliquid UI에서 주문 확인
+- [ ] 포지션 오픈 → SL/TP 트리거 → 클로즈 사이클 확인
+- [ ] Reconciliation이 정상 동작하는지 (재시작 후)
+
+---
+
+## Phase E: 파라미터 최종 확정
+
+### E-1. 검토할 파라미터 목록
+
+| 파일 | 주요 파라미터 | 조정 기준 |
+|------|-------------|----------|
+| `params/s{1-4}/params.json` | DNA 가중치, Gate 임계값, Exit 설정 | 백테스트 + Paper Trading 종합 |
+| `src/utils/config.py` | `SYMBOL_POOL` (거래 심볼) | 유동성 충분한 심볼만 |
+| `src/utils/config.py` | `capital_pct` (자본 배분) | s1:15%, s2:25%, s3:30%, s4:30% |
+| `src/utils/config.py` | 수수료 모델 (taker 3.5bps) | 실제 Hyperliquid 수수료 등급과 일치시키기 |
+| `src/openclaw/evolver.py` | `CYCLE_INTERVAL_HOURS = 4` | 처음엔 더 길게 (12h) 설정 고려 |
+
+### E-2. 하드코딩 설정 확인
+
+```
+MDD 10% → CLOSE_ALL_AND_HALT (24시간 정지)    # config.py
+에이전트 4개: s1(5m), s2(5m+15m), s3(5m+15m+1h), s4(5m+15m+1h+4h)
+7개 심볼: BTC, ETH, SOL, XRP, DOGE, AVAX, LINK
+OpenClaw 모델: gpt-4o                         # evolver.py
+```
+
+---
+
+## Phase F: 서버 배포
+
+### F-1. 서버 선택
+
+| 옵션 | 사양 | 비용 | 비고 |
+|------|------|------|------|
+| Hetzner CX22 | 2vCPU, 4GB RAM | ~$5/월 | 유럽 DC, 가성비 최고 |
+| DigitalOcean Basic | 2vCPU, 2GB RAM | ~$12/월 | 글로벌 DC |
+| AWS Lightsail | 2vCPU, 2GB RAM | ~$10/월 | 미국/아시아 DC |
+
+> 최소 요구: 2GB RAM, 10GB 디스크, 안정적 네트워크
+
+### F-2. Docker 배포 (권장)
+
+```bash
+# 서버에서
+git clone <repo> /opt/tradingbot
+cd /opt/tradingbot
+
+# .env 파일 작성 (로컬에서 복사 또는 직접 편집)
+vi .env
+
+# 과거 데이터 다운로드 (서버에서)
+docker compose run --rm tradingbot python -m src.collector.historical --years 3
+
+# 실행
+docker compose up -d
+
+# 확인
+docker compose logs -f
+curl http://localhost:8080/health
+```
+
+### F-3. Systemd 배포 (대안)
+
+```bash
+# Ubuntu/Debian 서버에서 root로 실행
+sudo bash deploy/setup.sh
+
+# .env 편집
+sudo vi /opt/tradingbot/.env
+
+# 과거 데이터
+sudo -u tradingbot /opt/tradingbot/.venv/bin/python -m src.collector.historical --years 3
+
+# 시작
+sudo systemctl start tradingbot
+sudo systemctl status tradingbot
+journalctl -u tradingbot -f
+```
+
+### F-4. 서버 모니터링 설정
+
+- [ ] 헬스체크 외부 모니터링 (UptimeRobot 등 — 무료): `http://서버IP:8080/health`
+- [ ] Telegram errors 토픽으로 에러 알림 자동 수신
+- [ ] 디스크 사용량 확인 (SQLite DB 증가): `du -sh /opt/tradingbot/data/`
+- [ ] 자동 재시작 확인: `systemctl is-enabled tradingbot` 또는 Docker `restart: unless-stopped`
+
+---
+
+## Phase G: 메인넷 전환 + 소액 실전
+
+### G-1. 메인넷 전환 체크리스트
+
+```bash
+# .env 변경 (⚠️ 실제 자금 사용 시작)
+HYPERLIQUID_TESTNET=false
+DRY_RUN=false
+TOTAL_CAPITAL=200          # 소액으로 시작 ($100~300)
+```
+
+| 확인 | 내용 |
+|------|------|
+| ✅ | 테스트넷 24시간+ 무중단 통과 |
+| ✅ | 백테스트 PF ≥ 1.2 |
+| ✅ | 모든 API 키 정상 (preflight 통과) |
+| ✅ | Telegram 알림 정상 수신 |
+| ✅ | 서버 자동 재시작 설정됨 |
+| ✅ | Hyperliquid 지갑에 USDC 입금 완료 |
+
+### G-2. 소액 실전 운영 ($100~300)
+
+```bash
+# 서비스 재시작
+docker compose down && docker compose up -d
+# 또는
+sudo systemctl restart tradingbot
+```
+
+**1주차 모니터링 일일 루틴**:
+```bash
+# 매일 아침
+curl http://서버:8080/health | python -m json.tool
+python scripts/analyze.py --days 1
+
+# 매주
+python scripts/analyze.py --days 7 --patterns --correlation
+```
+
+| 지표 | 합격 기준 | 위험 신호 |
+|------|----------|----------|
+| PF (Profit Factor) | ≥ 1.5 | < 1.0 (손실 구간) |
+| MDD | ≤ 5% | > 8% (Stage 3 진입) |
+| 일 거래 수 | 0~10건 | > 30건 (과매매) |
+| 승률 | ≥ 40% | < 30% |
+| 연속 손실 | ≤ 5회 | > 7회 (자동 size 감쇠 확인) |
+
+### G-3. 자본 확대 계획
+
+| 단계 | 조건 | 자본 | 비고 |
+|------|------|------|------|
+| **1단계** | 시작 | $100~300 | 1~2주 운영 |
+| **2단계** | PF ≥ 1.5, MDD ≤ 5%, 2주 경과 | $500~1,000 | |
+| **3단계** | PF ≥ 1.3, MDD ≤ 7%, 4주 경과 | $2,000~5,000 | |
+| **4단계** | PF ≥ 1.3, MDD ≤ 7%, 8주 경과 | $5,000~10,000 | 목표 자본 |
+
+> 기준 미달 시: 즉시 `DRY_RUN=true` 전환 → 파라미터 재조정 → 백테스트 → 재시도
+
+---
+
+## Phase H: 장기 운영 + 유지보수
+
+### H-1. 정기 점검 항목
+
+| 주기 | 작업 |
+|------|------|
+| 매일 | Telegram daily_report 확인, 헬스체크 응답 확인 |
+| 매주 | `scripts/analyze.py --patterns --correlation` 실행, DB 백업 |
+| 매월 | 서버 업데이트, Python/의존성 업그레이드, Hyperliquid 수수료 변경 확인 |
+| 분기 | Evolver 파라미터 이력 리뷰, 심볼 풀 재평가 |
+
+### H-2. 장애 대응
+
+| 상황 | 대응 |
+|------|------|
+| WS 끊김 (자동 재연결 실패) | 서비스 재시작: `systemctl restart tradingbot` |
+| MDD 10% → CLOSE_ALL_AND_HALT | 24시간 자동 정지. 원인 분석 후 파라미터 조정 |
+| 서버 다운 | 재시작 시 Reconciliation이 자동 포지션 정리 |
+| Hyperliquid API 장애 | 자동 재시도 3회. 실패 시 Telegram errors 알림 |
+| OpenAI API 장애 | Evolver만 정지, 트레이딩 정상 계속 |
+
+### H-3. DB 백업
+
+```bash
+# SQLite 백업 (서비스 중에도 안전 — WAL mode)
+cp data/trades.db data/trades_backup_$(date +%Y%m%d).db
+
+# 또는 원격 백업
+scp user@서버:/opt/tradingbot/data/trades.db ./backups/
+```
 
 ---
 
@@ -310,21 +659,29 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 ```bash
 # 1. 환경 설정
 cp .env.example .env
-# .env 파일에 실제 API 키 입력
+# .env 파일에 실제 API 키 입력 (Phase A 참조)
 
 # 2. 의존성 설치
 python3 -m venv .venv
-.venv/bin/pip install -e .
+source .venv/bin/activate
+pip install -e .
 
 # 3. 사전 점검
-.venv/bin/python scripts/preflight.py
+python scripts/preflight.py
 
-# 4. 과거 데이터 다운로드 (최초 1회)
-.venv/bin/python -m src.collector.historical --years 3
+# 4. 통합 테스트
+python scripts/integration_test.py
 
-# 5. 실행 (DRY_RUN 모드)
-DRY_RUN=true .venv/bin/python -m src.main
+# 5. 과거 데이터 다운로드 (최초 1회)
+python -m src.collector.historical --years 3
 
-# 6. 헬스체크
+# 6. 백테스트
+python -m src.backtest
+python scripts/analyze.py --patterns --correlation
+
+# 7. 실행 (DRY_RUN 모드)
+DRY_RUN=true python -m src.main
+
+# 8. 헬스체크
 curl http://localhost:8080/health
 ```
