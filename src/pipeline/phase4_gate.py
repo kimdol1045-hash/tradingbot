@@ -429,8 +429,8 @@ def phase4_gate(
     # ━━━━ 4G: Pass threshold (dynamic) ━━━━
     gate_params = params.get("gate", {})
     base_pass_scores = gate_params.get("base_pass_scores", {
-        "STRONG_UPTREND": 55, "WEAK_UPTREND": 60, "SIDEWAYS": 70,
-        "WEAK_DOWNTREND": 60, "STRONG_DOWNTREND": 55, "VOLATILE": 80,
+        "STRONG_UPTREND": 40, "WEAK_UPTREND": 45, "SIDEWAYS": 50,
+        "WEAK_DOWNTREND": 45, "STRONG_DOWNTREND": 40, "VOLATILE": 60,
     })
     base = base_pass_scores.get(regime_result.regime, 65)
 

@@ -34,12 +34,12 @@
 
   "gate": {
     "base_pass_scores": {
-      "STRONG_UPTREND": 60,
-      "WEAK_UPTREND": 65,
-      "SIDEWAYS": 70,
-      "WEAK_DOWNTREND": 65,
-      "STRONG_DOWNTREND": 60,
-      "VOLATILE": 75
+      "STRONG_UPTREND": 40,
+      "WEAK_UPTREND": 45,
+      "SIDEWAYS": 50,
+      "WEAK_DOWNTREND": 45,
+      "STRONG_DOWNTREND": 40,
+      "VOLATILE": 60
     },
     "pf_anti_stall": {
       "min_daily_trades": 1,

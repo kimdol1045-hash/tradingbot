@@ -129,6 +129,7 @@ async def main():
     parser.add_argument("--days", type=int, default=60, help="Days of history")
     parser.add_argument("--capital", type=float, default=10000.0, help="Capital per agent")
     parser.add_argument("--warmup", type=int, default=200, help="Warmup candles")
+    parser.add_argument("--scan-every", type=int, default=6, help="Run pipeline every N candles (6=30m)")
     parser.add_argument("--synthetic", action="store_true", help="Use synthetic data (no DB)")
     args = parser.parse_args()
 
@@ -161,7 +162,7 @@ async def main():
             continue
 
         # Run backtest
-        engine = BacktestEngine(candles_by_tf, symbol, warmup=args.warmup)
+        engine = BacktestEngine(candles_by_tf, symbol, warmup=args.warmup, scan_every=args.scan_every)
         results = engine.run(agent_ids=args.agents, capital_per_agent=args.capital)
 
         # Print reports

@@ -68,6 +68,14 @@ async def fetch_binance_candles(
 
             try:
                 resp = await client.get(BINANCE_FUTURES_URL, params=params)
+
+                # Rate limit handling: back off and retry
+                if resp.status_code == 429:
+                    wait = int(resp.headers.get("Retry-After", "60"))
+                    logger.warning("Binance rate limit 429, waiting %ds...", wait)
+                    await asyncio.sleep(wait)
+                    continue
+
                 if resp.status_code != 200:
                     logger.error("Binance API error: %d", resp.status_code)
                     break
@@ -98,12 +106,12 @@ async def fetch_binance_candles(
                     symbol, timeframe, len(data), len(all_candles),
                 )
 
-                # Rate limit: 1200 requests/min → ~20/sec, stay conservative
-                await asyncio.sleep(0.1)
+                # Rate limit: stay well under 1200 req/min
+                await asyncio.sleep(0.3)
 
             except Exception:
                 logger.exception("Binance fetch error: %s %s", symbol, timeframe)
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 current_start += tf_ms * BINANCE_LIMIT  # Skip chunk on error
 
     return all_candles
@@ -199,6 +207,9 @@ async def load_historical(
             else:
                 results[key] = 0
                 logger.warning("No data for %s %s", symbol, tf)
+
+            # Pause between TF downloads to avoid rate limits
+            await asyncio.sleep(2)
 
     await db.close()
     return results

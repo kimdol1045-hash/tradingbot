@@ -290,10 +290,12 @@ class BacktestEngine:
         candles_by_tf: dict[str, list[dict]],
         symbol: str,
         warmup: int = 200,
+        scan_every: int = 6,
     ):
         self.candles_by_tf = candles_by_tf
         self.symbol = symbol
         self.warmup = warmup
+        self.scan_every = scan_every  # run Phase 2-5 every N candles (6 = every 30m)
         self._cache = ReplayCache(max_size=300)
 
     def run(
@@ -345,6 +347,7 @@ class BacktestEngine:
 
     def _run_agent(self, agent_id: str, capital: float) -> BacktestResult:
         """Run backtest for a single agent."""
+        t0 = time.perf_counter()
         profile = AGENT_PROFILES[agent_id]
         params = load_params(agent_id)
         result = BacktestResult(agent_id=agent_id, symbol=self.symbol)
@@ -400,22 +403,28 @@ class BacktestEngine:
                 if c["timestamp"] <= warmup_end_ts:
                     cache.push(self.symbol, tf, c)
 
+        total_candles = len(primary_candles)
+        log_interval = max(total_candles // 10, 10000)
+        scan_every = self.scan_every
+        debug_counts = {
+            "p1_blocked": 0, "p1_passed": 0,
+            "p3_no_pattern": 0, "p3_found": 0,
+            "p4_blocked": 0, "p4_passed": 0,
+            "p5_no_signal": 0, "p5_signal": 0,
+        }
+
         # Main replay loop
         for i, candle in enumerate(primary_candles):
             cache.push(self.symbol, "5m", candle)
 
             # Also push any higher TF candles that close at this timestamp
+            # Use pre-built tf_indices for O(1) lookup instead of linear scan
             for tf in profile.timeframes:
                 if tf == "5m":
                     continue
-                tf_candles = self.candles_by_tf.get(tf, [])
-                tf_ms = TIMEFRAME_MINUTES.get(tf, 60) * 60 * 1000
-                # Check if a higher TF candle closes at this 5m boundary
-                for tc in tf_candles:
-                    # Higher TF candle closes when: its timestamp + tf_ms == current candle ts + 5m_ms
-                    # Simpler: just add any htf candle whose timestamp falls in current window
-                    if tc["timestamp"] == candle["timestamp"]:
-                        cache.push(self.symbol, tf, tc)
+                idx = tf_indices.get(tf, {}).get(candle["timestamp"])
+                if idx is not None:
+                    cache.push(self.symbol, tf, self.candles_by_tf[tf][idx])
 
             result.candles_processed += 1
 
@@ -423,8 +432,22 @@ class BacktestEngine:
             if i < self.warmup:
                 continue
 
-            # Refresh stats every 200 candles
-            if i - stats_ts > 200 or stats is None:
+            # Progress logging
+            if i % log_interval == 0:
+                elapsed = time.perf_counter() - t0
+                pct = i / total_candles * 100
+                logger.info(
+                    "[BT] %s/%s: %d/%d candles (%.0f%%), %d signals, %.0fs",
+                    agent_id, self.symbol, i, total_candles, pct,
+                    result.signals_generated, elapsed,
+                )
+
+            # Only run full pipeline every scan_every candles (Phase 1 safety is cheap)
+            if (i - self.warmup) % scan_every != 0:
+                continue
+
+            # Refresh stats every 200 scan intervals
+            if i - stats_ts > 200 * scan_every or stats is None:
                 cache_5m = cache.get(self.symbol, "5m")
                 if len(cache_5m) >= 100:
                     stats = compute_stats(cache_5m, self.symbol, "5m")
@@ -454,7 +477,9 @@ class BacktestEngine:
                 state["stage_entered_ts"] = candle["timestamp"]
 
             if safety.blocked:
+                debug_counts["p1_blocked"] += 1
                 continue
+            debug_counts["p1_passed"] += 1
 
             # Phase 2: READ
             regime = phase2_read(candles_by_tf_current, safety, agent_config, state, params)
@@ -468,7 +493,9 @@ class BacktestEngine:
             scan = phase3_scan(candles_by_tf_current, regime, safety, agent_config, params, stats_dict)
 
             if not scan.found:
+                debug_counts["p3_no_pattern"] += 1
                 continue
+            debug_counts["p3_found"] += 1
 
             # Phase 4: GATE
             gate_stats = {
@@ -478,12 +505,23 @@ class BacktestEngine:
             gate = phase4_gate(primary_buf, scan, regime, safety, state, params, gate_stats)
 
             if not gate.passed:
+                debug_counts["p4_blocked"] += 1
+                if debug_counts["p4_blocked"] <= 3:
+                    logger.info(
+                        "[BT] %s/%s P4 reject #%d: score=%.1f thresh=%.1f regime=%s reason=%s scan_score=%.1f",
+                        agent_id, self.symbol, debug_counts["p4_blocked"],
+                        gate.score, gate.pass_threshold, regime.regime,
+                        gate.reason, scan.score,
+                    )
                 continue
+            debug_counts["p4_passed"] += 1
 
             # Phase 5: EXECUTE
             signal = phase5_execute(scan, regime, safety, gate, agent_config, state, params)
             if not signal:
+                debug_counts["p5_no_signal"] += 1
                 continue
+            debug_counts["p5_signal"] += 1
 
             result.signals_generated += 1
 
@@ -530,5 +568,16 @@ class BacktestEngine:
         if primary_candles:
             result.start_ts = primary_candles[self.warmup]["timestamp"] if self.warmup < len(primary_candles) else 0
             result.end_ts = primary_candles[-1]["timestamp"]
+
+        # Debug: log pipeline funnel
+        logger.info(
+            "[BT] %s/%s pipeline funnel: P1(block=%d pass=%d) P3(miss=%d found=%d) "
+            "P4(block=%d pass=%d) P5(miss=%d signal=%d)",
+            agent_id, self.symbol,
+            debug_counts["p1_blocked"], debug_counts["p1_passed"],
+            debug_counts["p3_no_pattern"], debug_counts["p3_found"],
+            debug_counts["p4_blocked"], debug_counts["p4_passed"],
+            debug_counts["p5_no_signal"], debug_counts["p5_signal"],
+        )
 
         return result
