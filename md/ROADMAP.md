@@ -1,17 +1,17 @@
 # 구현 로드맵
 
 > **원본 설계 문서**: [PIPELINE_v5.0.md](./PIPELINE_v5.0.md)
-> **최종 업데이트**: 2026-02-18
+> **최종 업데이트**: 2026-02-19
 
 ---
 
 ## 프로젝트 현황 요약
 
 ```
-상태: Sprint 9 완료 — Paper Trading 코드 완료 (실전 전환만 남음)
-파일: 72개+ (Python 42+, JSON 4개, 설계문서 12개, 배포 설정 등)
-코드: ~36,000줄
-Git: main 브랜치, 5 commits
+상태: Sprint 10 코드 완료 — 분석 도구 + 통합 테스트 완성 (운영 전환만 남음)
+파일: 74개+ (Python 44+, JSON 4개, 설계문서 12개, 배포 설정 등)
+코드: ~37,500줄
+Git: main 브랜치, 8 commits
 ```
 
 ---
@@ -32,7 +32,9 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
   │   │   ├── ws_client.py           # Hyperliquid WebSocket 클라이언트
   │   │   └── historical.py          # 과거 데이터 벌크 로더 (Binance/HL)
   │   ├── exchange/
-  │   │   └── hyperliquid.py         # REST API 래퍼
+  │   │   ├── hyperliquid.py         # REST API 래퍼
+  │   │   ├── executor.py            # OrderExecutor (DRY_RUN + 실거래)
+  │   │   └── reconciliation.py      # 시작시 포지션 대조
   │   ├── pipeline/
   │   │   ├── models.py              # 전체 dataclass 정의
   │   │   ├── phase1_safety.py       # 8 Safety 조건 + Stage 시스템
@@ -63,7 +65,9 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
   │       └── params.py              # 에이전트 파라미터 JSON I/O
   ├── params/s1~s4/params.json       # 에이전트별 파라미터
   ├── scripts/
-  │   └── preflight.py               # 시작 전 검증 스크립트
+  │   ├── preflight.py               # 시작 전 검증 스크립트
+  │   ├── analyze.py                 # 성과 분석 CLI (PF/MDD/Sharpe/상관관계)
+  │   └── integration_test.py        # E2E 통합 테스트 (15개)
   ├── deploy/
   │   ├── tradingbot.service          # systemd 서비스 파일
   │   ├── setup.sh                    # 서버 설치 스크립트
@@ -250,18 +254,33 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 
 ---
 
-### 🔲 Sprint 10: 검증 + 실전 전환
+### ✅ Sprint 10: 분석 도구 + 통합 테스트 (코드 완료)
 
-| 작업 | 산출물 | 설명 |
-|------|--------|------|
-| Paper Trading 분석 | 분석 리포트 | 에이전트별 PF, MDD, Sortino, 거래수 |
-| 에이전트 간 상관관계 분석 | 분석 결과 | 동시 포지션 충돌률, 드로다운 상관계수 |
-| 패턴별 승률 통계 | Evolver 반영 | 저성과 패턴 가중치 하향 조정 |
-| 최종 파라미터 확정 | params/s1~s4 최종 | 백테스트 + Paper Trading 종합 |
-| 클라우드 배포 | VPS (Docker) | Hetzner/DO $10~20/월, 볼륨 마운트 |
-| 메인넷 전환 | .env | HYPERLIQUID_TESTNET=false |
-| 소액 실전 ($100~300) | 실거래 | DRY_RUN=false, 실 자금 |
-| 점진적 자본 확대 | 운영 판단 | PF ≥ 1.5 유지 확인 후 단계적 증액 |
+**구현 완료 항목:**
+- [x] `scripts/analyze.py`: 성과 분석 CLI 도구
+  - 에이전트별 메트릭: PF, MDD, Sharpe, Sortino, 승률, 스트릭, 청산 사유
+  - 패턴별 승률 분석 (변곡점 타입별)
+  - 에이전트 간 상관관계 (동시 포지션 겹침률, 일일 PnL Pearson 상관)
+  - CLI: `python scripts/analyze.py [--days N] [--agent X] [--patterns] [--correlation]`
+- [x] `scripts/integration_test.py`: 15개 E2E 통합 테스트
+  - DB 스키마 생성 검증
+  - Pipeline 5 Phase 합성 데이터 테스트
+  - OrderExecutor DRY_RUN 실행 + 멱등성
+  - DB trades/positions 기록 검증
+  - Reconciliation (고아/스테일 처리)
+  - PositionManager 라이프사이클
+  - Pipeline 구조화 로깅
+
+**테스트 결과:** 15/15 passed, 0 failed
+
+**미완료 (수동 운영 필요):**
+- [ ] 테스트넷 Paper Trading 24시간 무중단 테스트
+- [ ] 실 데이터 에이전트 상관관계 분석
+- [ ] 최종 파라미터 확정 (백테스트 + Paper Trading 종합)
+- [ ] 클라우드 배포 (VPS Docker)
+- [ ] 메인넷 전환 (HYPERLIQUID_TESTNET=false)
+- [ ] 소액 실전 ($100~300, DRY_RUN=false)
+- [ ] 점진적 자본 확대 (PF ≥ 1.5 확인 후)
 
 **완료 기준**: 실전 $100~300으로 1주 운영. PF ≥ 1.5, MDD ≤ 5%.
 
@@ -280,9 +299,9 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 | **S7** | 프로덕션 배포 (Docker, systemd, 헬스체크, preflight) | ✅ 완료 |
 | **S8** | 백테스트 엔진 + 6개 버그 수정 | ✅ 완료 |
 | **S9** | Paper Trading + 안정성 (코드 완료, 운영 테스트 남음) | ✅ 완료 |
-| **S10** | 검증 + 실전 전환 | 🔲 |
+| **S10** | 분석 도구 + 통합 테스트 (코드 완료, 운영 전환 남음) | ✅ 완료 |
 
-**진행률: 9/10 스프린트 완료 (코어 + 백테스트 + Paper Trading 코드 100%, 실전 전환 남음)**
+**진행률: 10/10 스프린트 코드 완료 (운영 전환만 남음)**
 
 ---
 
