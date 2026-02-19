@@ -95,7 +95,47 @@ def main() -> int:
         param_file = PROJECT_ROOT / "params" / agent_id / "params.json"
         results.append(check(f"params/{agent_id}/params.json", param_file.exists()))
 
-    # 7. API connectivity (optional — requires network)
+    # 7. Multi-wallet check
+    print("\n── Wallet Configuration ──")
+    global_key = os.getenv("HYPERLIQUID_KEY", "")
+    per_agent_keys = {}
+    for agent_id in ["s1", "s2", "s3", "s4"]:
+        env_var = f"HYPERLIQUID_KEY_{agent_id.upper()}"
+        val = os.getenv(env_var, "")
+        if val:
+            per_agent_keys[agent_id] = val
+
+    if per_agent_keys:
+        print(f"  {PASS} Multi-wallet mode: {len(per_agent_keys)} per-agent keys found")
+        # Validate each key
+        try:
+            import eth_account
+            addresses = []
+            for agent_id, key in per_agent_keys.items():
+                try:
+                    wallet = eth_account.Account.from_key(key)
+                    addresses.append(wallet.address)
+                    results.append(check(
+                        f"HYPERLIQUID_KEY_{agent_id.upper()}", True,
+                        f"valid ({wallet.address[:10]}...)",
+                    ))
+                except Exception as e:
+                    results.append(check(
+                        f"HYPERLIQUID_KEY_{agent_id.upper()}", False,
+                        f"invalid key: {str(e)[:40]}",
+                    ))
+            # Warn if all keys are the same
+            unique_addresses = set(addresses)
+            if len(unique_addresses) == 1 and len(addresses) > 1:
+                print(f"  {WARN} All per-agent keys resolve to the same address — no isolation benefit")
+        except ImportError:
+            print(f"  {WARN} eth_account not installed — cannot validate wallet keys")
+    elif global_key and global_key != "your_api_key_here":
+        print(f"  {PASS} Legacy single-wallet mode (HYPERLIQUID_KEY)")
+    else:
+        print(f"  {WARN} No wallet keys configured")
+
+    # 8. API connectivity (optional — requires network)
     print("\n── API Connectivity ──")
 
     try:
@@ -143,7 +183,7 @@ def main() -> int:
     except ImportError:
         print(f"  {WARN} httpx not installed — skipping API checks")
 
-    # 8. Module imports
+    # 9. Module imports
     print("\n── Module Imports ──")
     critical_modules = [
         "src.utils.config",

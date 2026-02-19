@@ -104,6 +104,7 @@ class EquityTracker:
 
         return {
             "capital": agent.current_equity,
+            "initial_capital": agent.initial_capital,
             "current_mdd": agent.current_mdd,
             "rolling_pf": agent.rolling_pf,
             "consecutive_losses": agent.consecutive_losses,

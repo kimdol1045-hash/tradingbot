@@ -4,6 +4,7 @@ Configuration: environment loading, agent profiles, symbol pool, and system cons
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +30,50 @@ IS_TESTNET = os.getenv("HYPERLIQUID_TESTNET", "true").lower() == "true"
 # ── API Keys ──
 HYPERLIQUID_KEY = os.getenv("HYPERLIQUID_KEY", "")
 HYPERLIQUID_SECRET = os.getenv("HYPERLIQUID_SECRET", "")
+
+_logger = logging.getLogger(__name__)
+
+
+# ═══ Multi-Wallet Config ═══
+
+@dataclass(frozen=True)
+class WalletConfig:
+    """Per-agent wallet configuration."""
+    agent_id: str
+    private_key: str
+    wallet_address: str
+
+
+def get_wallet_configs() -> dict[str, WalletConfig]:
+    """
+    Load per-agent wallet configs from environment.
+
+    Checks HYPERLIQUID_KEY_S1~S4 first; falls back to global HYPERLIQUID_KEY.
+    Returns {agent_id: WalletConfig}.
+    """
+    configs: dict[str, WalletConfig] = {}
+    global_key = os.getenv("HYPERLIQUID_KEY", "")
+
+    for agent_id in ("s1", "s2", "s3", "s4"):
+        env_var = f"HYPERLIQUID_KEY_{agent_id.upper()}"
+        key = os.getenv(env_var, "") or global_key
+
+        if not key:
+            _logger.warning("No key for agent %s (checked %s and HYPERLIQUID_KEY)", agent_id, env_var)
+            continue
+
+        try:
+            import eth_account  # lazy import for test compatibility
+            wallet = eth_account.Account.from_key(key)
+            configs[agent_id] = WalletConfig(
+                agent_id=agent_id,
+                private_key=key,
+                wallet_address=wallet.address,
+            )
+        except Exception:
+            _logger.warning("Invalid key for agent %s (%s)", agent_id, env_var)
+
+    return configs
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -194,4 +239,13 @@ OPEN_RISK_PARAMS = {
 SQLITE_CONFIG = {
     "journal_mode": "WAL",
     "busy_timeout_ms": 5000,
+}
+
+# ═══ Exposure Limits ═══
+
+EXPOSURE_LIMITS = {
+    "max_positions_per_agent": 3,
+    "max_positions_per_symbol": 1,
+    "max_portfolio_positions": 8,
+    "max_single_coin_exposure_pct": 0.30,
 }

@@ -69,7 +69,9 @@
     "split_ratios": [60, 40],
     "max_hold_candles": 36,
     "max_loss_pct": 0.02,
-    "risk_per_trade": 0.01
+    "risk_per_trade": 0.01,
+    "risk_mode": "dynamic",
+    "fixed_risk_usd": 30.0
   },
 
   "trailing_stop": {

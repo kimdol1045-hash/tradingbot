@@ -28,12 +28,17 @@ def get_info_client(skip_ws: bool = True) -> Info:
     return Info(_get_base_url(), skip_ws=skip_ws)
 
 
-def get_exchange_client() -> Exchange | None:
-    """Create an Exchange client for order execution. Returns None if no key."""
-    if not HYPERLIQUID_KEY:
+def get_exchange_client(private_key: str | None = None) -> Exchange | None:
+    """Create an Exchange client for order execution. Returns None if no key.
+
+    Args:
+        private_key: Hex private key. Falls back to global HYPERLIQUID_KEY if None.
+    """
+    key = private_key or HYPERLIQUID_KEY
+    if not key:
         logger.warning("No HYPERLIQUID_KEY set, exchange client unavailable")
         return None
-    wallet = eth_account.Account.from_key(HYPERLIQUID_KEY)
+    wallet = eth_account.Account.from_key(key)
     return Exchange(wallet, _get_base_url())
 
 

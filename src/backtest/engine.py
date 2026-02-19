@@ -356,6 +356,7 @@ class BacktestEngine:
         cache = ReplayCache(max_size=300)
 
         # Agent state (mirrors runner.py)
+        # total_capital set high: backtest is single-symbol, exposure limit shouldn't block
         state = {
             "current_mdd": 0.0,
             "current_stage": "NORMAL",
@@ -363,6 +364,8 @@ class BacktestEngine:
             "current_regime": "SIDEWAYS",
             "grace_counter": 0,
             "capital": capital,
+            "total_capital": capital / profile.capital_pct,
+            "initial_capital": capital,
             "open_risk": 0.0,
             "rolling_pf": 2.0,
             "consecutive_losses": 0,

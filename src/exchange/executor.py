@@ -7,6 +7,7 @@ Handles:
   - DB persistence with signal_id idempotency
   - Retry logic for transient exchange errors
   - Async wrapper around sync SDK
+  - Multi-wallet: per-agent Exchange clients
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from src.exchange.hyperliquid import (
     update_leverage,
 )
 from src.pipeline.models import Signal
-from src.utils.config import HYPERLIQUID_KEY, IS_TESTNET
+from src.utils.config import HYPERLIQUID_KEY, IS_TESTNET, WalletConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +54,13 @@ class OrderExecutor:
     """
     Executes trading signals on Hyperliquid.
 
+    Supports multi-wallet mode (per-agent wallets) and legacy single-wallet mode.
+
     Args:
         db: aiosqlite connection for trade persistence
         dry_run: If True, simulate orders without sending to exchange
-        wallet_address: Hyperliquid wallet address for querying state
+        wallet_address: Legacy single wallet address (backwards compat)
+        wallet_configs: Per-agent wallet configs {agent_id: WalletConfig}
     """
 
     def __init__(
@@ -64,26 +68,93 @@ class OrderExecutor:
         db: aiosqlite.Connection,
         dry_run: bool = True,
         wallet_address: str = "",
+        wallet_configs: dict[str, WalletConfig] | None = None,
     ):
         self.db = db
         self.dry_run = dry_run
-        self.wallet_address = wallet_address
-        self._exchange = None
+        self.wallet_configs = wallet_configs or {}
+
+        # Per-agent exchange clients (lazy init)
+        self._exchanges: dict[str, Any] = {}
+        self._addresses: dict[str, str] = {}
+
+        # Legacy single-wallet fallback
+        self._legacy_address = wallet_address
+        self._legacy_exchange = None
+
+        # Shared read-only Info client
         self._info = None
 
-    def _ensure_clients(self):
-        """Lazily initialize exchange clients."""
+        # Populate addresses from wallet_configs
+        for agent_id, wc in self.wallet_configs.items():
+            self._addresses[agent_id] = wc.wallet_address
+
+        # If no wallet_configs, use legacy address
+        if not self._addresses and wallet_address:
+            self._addresses[""] = wallet_address
+
+    @property
+    def wallet_address(self) -> str:
+        """Legacy compat: return first available wallet address."""
+        if self._legacy_address:
+            return self._legacy_address
+        if self._addresses:
+            return next(iter(self._addresses.values()))
+        return ""
+
+    def _ensure_info(self):
+        """Lazily initialize shared Info client."""
         if self._info is None:
             self._info = get_info_client(skip_ws=True)
-        if self._exchange is None and not self.dry_run:
-            self._exchange = get_exchange_client()
-            if self._exchange is None:
-                logger.error("Exchange client unavailable (no API key?)")
+
+    def _ensure_clients(self, agent_id: str = ""):
+        """Lazily initialize exchange client for a specific agent."""
+        self._ensure_info()
+
+        if self.dry_run:
+            return
+
+        if agent_id and agent_id in self.wallet_configs:
+            # Multi-wallet mode
+            if agent_id not in self._exchanges:
+                wc = self.wallet_configs[agent_id]
+                client = get_exchange_client(private_key=wc.private_key)
+                if client is None:
+                    logger.error("Exchange client unavailable for agent %s", agent_id)
+                else:
+                    self._exchanges[agent_id] = client
+        else:
+            # Legacy single-wallet mode
+            if self._legacy_exchange is None:
+                self._legacy_exchange = get_exchange_client()
+                if self._legacy_exchange is None:
+                    logger.error("Exchange client unavailable (no API key?)")
+
+    def _get_exchange(self, agent_id: str = ""):
+        """Get Exchange client for agent. Falls back to legacy client."""
+        if agent_id and agent_id in self._exchanges:
+            return self._exchanges[agent_id]
+        if agent_id and agent_id in self.wallet_configs:
+            # Lazy init on demand
+            self._ensure_clients(agent_id)
+            return self._exchanges.get(agent_id)
+        return self._legacy_exchange
+
+    def _get_address(self, agent_id: str = "") -> str:
+        """Get wallet address for agent. Falls back to legacy address."""
+        if agent_id and agent_id in self._addresses:
+            return self._addresses[agent_id]
+        return self._legacy_address
+
+    def get_all_addresses(self) -> dict[str, str]:
+        """Return {agent_id: wallet_address} for all configured wallets."""
+        return dict(self._addresses)
 
     async def execute_signal(self, signal: Signal) -> OrderResult:
         """
         Execute a signal: place entry + SL + TP orders.
 
+        Uses signal.agent_id to select the correct wallet.
         Idempotent: checks DB for existing signal_id before executing.
         """
         # Idempotency check
@@ -120,12 +191,13 @@ class OrderExecutor:
 
     async def _execute_live(self, signal: Signal) -> OrderResult:
         """Execute order on Hyperliquid exchange with retries."""
-        self._ensure_clients()
+        agent_id = signal.agent_id
+        self._ensure_clients(agent_id)
 
-        if self._exchange is None:
+        exchange = self._get_exchange(agent_id)
+        if exchange is None:
             return OrderResult(success=False, error="NO_EXCHANGE_CLIENT")
 
-        exchange = self._exchange
         is_buy = signal.direction == "LONG"
         size = signal.notional_usd / signal.entry_price if signal.entry_price > 0 else 0
         if size <= 0:
@@ -194,16 +266,18 @@ class OrderExecutor:
 
         return OrderResult(success=False, error="MAX_RETRIES_EXCEEDED")
 
-    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> bool:
+    async def cancel_orders(
+        self, symbol: str, order_ids: list[str], agent_id: str = "",
+    ) -> bool:
         """Cancel a list of orders. Returns True if all cancelled."""
         if self.dry_run or not order_ids:
             return True
 
-        self._ensure_clients()
-        if self._exchange is None:
+        self._ensure_clients(agent_id)
+        exchange = self._get_exchange(agent_id)
+        if exchange is None:
             return False
 
-        exchange = self._exchange
         success = True
         for oid in order_ids:
             try:
@@ -216,21 +290,23 @@ class OrderExecutor:
         return success
 
     async def close_position(
-        self, symbol: str, direction: str, size: float, reason: str = "",
+        self, symbol: str, direction: str, size: float,
+        reason: str = "", agent_id: str = "",
     ) -> OrderResult:
         """Close a position with a market order."""
         if self.dry_run:
             logger.info("DRY_RUN CLOSE: %s %s size=%.6f reason=%s", direction, symbol, size, reason)
             return OrderResult(success=True, dry_run=True)
 
-        self._ensure_clients()
-        if self._exchange is None:
+        self._ensure_clients(agent_id)
+        exchange = self._get_exchange(agent_id)
+        if exchange is None:
             return OrderResult(success=False, error="NO_EXCHANGE_CLIENT")
 
         is_buy = direction == "SHORT"  # close SHORT → BUY, close LONG → SELL
         try:
             raw = await asyncio.to_thread(
-                place_market_order, self._exchange, symbol, is_buy, size,
+                place_market_order, exchange, symbol, is_buy, size,
             )
             if raw.get("status") == "ok":
                 logger.info("CLOSED: %s %s size=%.6f reason=%s", direction, symbol, size, reason)
@@ -240,18 +316,19 @@ class OrderExecutor:
             logger.exception("Close position error")
             return OrderResult(success=False, error=str(e))
 
-    async def get_exchange_positions(self) -> list[dict]:
-        """Fetch current positions from exchange."""
-        if self.dry_run or not self.wallet_address:
+    async def get_exchange_positions(self, agent_id: str = "") -> list[dict]:
+        """Fetch current positions from exchange for a specific agent wallet."""
+        address = self._get_address(agent_id)
+        if self.dry_run or not address:
             return []
 
-        self._ensure_clients()
+        self._ensure_info()
         if self._info is None:
             return []
 
         try:
             state = await asyncio.to_thread(
-                get_user_state, self._info, self.wallet_address,
+                get_user_state, self._info, address,
             )
             positions = []
             for pos in state.get("assetPositions", []):
@@ -269,7 +346,7 @@ class OrderExecutor:
                     })
             return positions
         except Exception:
-            logger.exception("Failed to fetch exchange positions")
+            logger.exception("Failed to fetch exchange positions for %s", agent_id or "legacy")
             return []
 
     # ── DB Persistence ──
