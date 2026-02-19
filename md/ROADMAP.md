@@ -335,19 +335,17 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhiJklMno...
 TELEGRAM_CHAT_ID=-1001234567890
 ```
 
-**추가 코드 설정** — `src/notify/telegram.py` 의 `TOPIC_IDS` 딕셔너리에 thread_id 입력:
-```python
-TOPIC_IDS: dict[str, int | None] = {
-    "signals":      12,    # 실제 thread_id로 교체
-    "fills":        13,
-    "exits":        14,
-    "safety":       15,
-    "errors":       16,
-    "daily_report": 17,
-    "system":       18,
-}
+**토픽 ID는 `.env` 파일에 설정** (소스 코드 수정 불필요):
 ```
-> `None`으로 두면 모든 메시지가 그룹 메인 채팅으로 감 (동작은 하지만 분류 안됨)
+TELEGRAM_TOPIC_SIGNALS=12
+TELEGRAM_TOPIC_FILLS=13
+TELEGRAM_TOPIC_EXITS=14
+TELEGRAM_TOPIC_SAFETY=15
+TELEGRAM_TOPIC_ERRORS=16
+TELEGRAM_TOPIC_DAILY_REPORT=17
+TELEGRAM_TOPIC_SYSTEM=18
+```
+> 비워두면 모든 메시지가 그룹 메인 채팅으로 감 (동작은 하지만 분류 안됨)
 
 ### A-3. OpenAI API (선택사항 — Evolver용)
 
@@ -488,7 +486,7 @@ DRY_RUN=false python -m src.main
 | `src/utils/config.py` | `SYMBOL_POOL` (거래 심볼) | 유동성 충분한 심볼만 |
 | `src/utils/config.py` | `capital_pct` (자본 배분) | s1:15%, s2:25%, s3:30%, s4:30% |
 | `src/utils/config.py` | 수수료 모델 (taker 3.5bps) | 실제 Hyperliquid 수수료 등급과 일치시키기 |
-| `src/openclaw/evolver.py` | `CYCLE_INTERVAL_HOURS = 4` | 처음엔 더 길게 (12h) 설정 고려 |
+| `.env` → `EVOLVER_INTERVAL_HOURS` | 기본값 4시간 | 처음엔 더 길게 (12) 설정 고려 |
 
 ### E-2. 하드코딩 설정 확인
 
@@ -496,7 +494,7 @@ DRY_RUN=false python -m src.main
 MDD 10% → CLOSE_ALL_AND_HALT (24시간 정지)    # config.py
 에이전트 4개: s1(5m), s2(5m+15m), s3(5m+15m+1h), s4(5m+15m+1h+4h)
 7개 심볼: BTC, ETH, SOL, XRP, DOGE, AVAX, LINK
-OpenClaw 모델: gpt-4o                         # evolver.py
+OpenClaw 모델: gpt-4o (EVOLVER_MODEL env로 변경 가능)
 ```
 
 ---

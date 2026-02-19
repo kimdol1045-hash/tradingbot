@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections import defaultdict
 
@@ -15,21 +16,29 @@ from src.utils.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 logger = logging.getLogger(__name__)
 
-# ═══ Topic IDs (set after creating Supergroup topics) ═══
+# ═══ Topic IDs — loaded from env vars (TELEGRAM_TOPIC_<NAME>) ═══
 
-TOPIC_IDS: dict[str, int | None] = {
-    "signals": None,      # New signal alerts
-    "fills": None,        # Order fill confirmations
-    "exits": None,        # Position close notifications
-    "safety": None,       # Safety stage changes, MDD alerts
-    "errors": None,       # System errors
-    "daily_report": None, # Daily PnL summary
-    "system": None,       # System start/stop/health
-}
+_TOPIC_KEYS = ["signals", "fills", "exits", "safety", "errors", "daily_report", "system"]
+
+
+def _load_topic_ids() -> dict[str, int | None]:
+    """Load topic thread IDs from environment variables."""
+    result: dict[str, int | None] = {}
+    for key in _TOPIC_KEYS:
+        env_key = f"TELEGRAM_TOPIC_{key.upper()}"
+        val = os.environ.get(env_key, "")
+        if val.strip().isdigit():
+            result[key] = int(val.strip())
+        else:
+            result[key] = None
+    return result
+
+
+TOPIC_IDS: dict[str, int | None] = _load_topic_ids()
 
 
 def configure_topics(topic_map: dict[str, int]):
-    """Configure topic IDs from environment or setup."""
+    """Configure topic IDs programmatically (overrides env)."""
     for key, tid in topic_map.items():
         if key in TOPIC_IDS:
             TOPIC_IDS[key] = tid

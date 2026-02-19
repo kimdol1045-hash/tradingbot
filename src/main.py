@@ -144,7 +144,7 @@ async def main() -> None:
         await asyncio.gather(
             collector.run_forever(),
             position_mgr.monitor_loop(interval=5.0),
-            evolver.run_loop(interval_hours=4.0),
+            evolver.run_loop(interval_hours=float(os.getenv("EVOLVER_INTERVAL_HOURS", "4"))),
             start_health_server(port=int(os.getenv("HEALTH_PORT", "8080"))),
         )
     except KeyboardInterrupt:

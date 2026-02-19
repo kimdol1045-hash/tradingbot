@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 
 import httpx
@@ -20,8 +21,8 @@ from src.utils.params import load_params, save_params
 logger = logging.getLogger(__name__)
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-MODEL = "gpt-4o"
-CYCLE_INTERVAL_HOURS = 4
+MODEL = os.getenv("EVOLVER_MODEL", "gpt-4o")
+CYCLE_INTERVAL_HOURS = float(os.getenv("EVOLVER_INTERVAL_HOURS", "4"))
 
 # ═══ Adjustable Parameter Ranges ═══
 # Evolver can only adjust within these bounds
