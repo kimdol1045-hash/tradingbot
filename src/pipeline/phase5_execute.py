@@ -11,6 +11,7 @@ import logging
 import time
 
 from src.pipeline.models import Signal
+from src.utils.config import EXPOSURE_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,10 @@ def calculate_leverage(
     decay = CONSECUTIVE_LOSS_DECAY[min(streak, len(CONSECUTIVE_LOSS_DECAY) - 1)]
     lev *= decay
 
+    # Step 7: AI Market Advisor multiplier (skip in survival/emergency)
+    if gate_result.mdd_mode not in ("survival", "emergency"):
+        lev *= agent_state.get("ai_leverage_mult", 1.0)
+
     lev = max(1.0, min(lev, float(max_leverage)))
     return round(lev, 1)
 
@@ -98,6 +103,7 @@ def calculate_stop_loss(
     safety_result,
     mdd_mode: str,
     params: dict,
+    agent_state: dict | None = None,
 ) -> float:
     """
     Calculate stop loss price.
@@ -105,6 +111,10 @@ def calculate_stop_loss(
     """
     exit_params = params.get("exit", {})
     sl_atr_mult = exit_params.get("sl_atr_mult", 1.5)
+
+    # AI Market Advisor adjustment (skip in survival/emergency)
+    if agent_state and mdd_mode not in ("survival", "emergency"):
+        sl_atr_mult *= agent_state.get("ai_sl_mult", 1.0)
     max_loss_pct = exit_params.get("max_loss_pct", 0.02)
     mdd_tighten = exit_params.get("mdd_tighten", {
         "normal": 1.0, "caution": 0.85, "defensive": 0.7, "survival": 0.5,
@@ -207,6 +217,16 @@ def calculate_take_profits(
 
 # ═══ Position Sizing ═══
 
+def _signal_quality_mult(confidence: float, inflection_score: float) -> float:
+    """Compute signal quality multiplier (0.5 ~ 1.5).
+
+    Blends regime confidence and inflection score equally.
+    quality=0 → 0.5x, quality=0.5 → 1.0x, quality=1.0 → 1.5x
+    """
+    quality = confidence * 0.5 + min(inflection_score / 100, 1.0) * 0.5
+    return round(0.5 + quality, 2)
+
+
 def calculate_position_size(
     entry_price: float,
     sl_price: float,
@@ -214,21 +234,39 @@ def calculate_position_size(
     capital: float,
     gate_result,
     params: dict,
+    *,
+    initial_capital: float = 0.0,
+    confidence: float = 0.0,
+    inflection_score: float = 0.0,
 ) -> tuple[float, float, float]:
     """
-    Fixed-loss position sizing.
+    Position sizing — three modes:
+      - "percent":  R = current_equity * risk_per_trade  (복리)
+      - "fixed":    R = fixed_risk_usd                   (고정값)
+      - "dynamic":  R = initial_capital * risk_per_trade * quality_mult  (단리 + 시그널 품질)
 
     Returns (notional_usd, margin_usd, order_qty).
     """
     exit_params = params.get("exit", {})
-    risk_per_trade = exit_params.get("risk_per_trade", 0.01)
+    risk_mode = exit_params.get("risk_mode", "percent")
 
     sl_pct = abs(entry_price - sl_price) / entry_price if entry_price > 0 else 0.01
     if sl_pct <= 0:
         sl_pct = 0.01
 
     # R = max loss in USD
-    r = capital * risk_per_trade * gate_result.size_mult
+    if risk_mode == "dynamic":
+        base_capital = initial_capital if initial_capital > 0 else capital
+        risk_per_trade = exit_params.get("risk_per_trade", 0.01)
+        quality_mult = _signal_quality_mult(confidence, inflection_score)
+        r = base_capital * risk_per_trade * quality_mult * gate_result.size_mult
+    elif risk_mode == "fixed":
+        fixed_risk_usd = exit_params.get("fixed_risk_usd", 30.0)
+        r = fixed_risk_usd * gate_result.size_mult
+    else:
+        # Default "percent": compound (original behavior)
+        risk_per_trade = exit_params.get("risk_per_trade", 0.01)
+        r = capital * risk_per_trade * gate_result.size_mult
 
     # Core formula: notional = R / sl_pct
     notional_usd = r / sl_pct
@@ -292,6 +330,7 @@ def phase5_execute(
         direction, entry_price, scan_result.atr,
         scan_result.sr_levels, safety_result,
         gate_result.mdd_mode, params,
+        agent_state=agent_state,
     )
 
     # ━━━━ 5C: Take Profits ━━━━
@@ -304,9 +343,45 @@ def phase5_execute(
     capital = agent_state.get("capital", 10000)
     notional_usd, margin_usd, order_qty = calculate_position_size(
         entry_price, sl, leverage, capital, gate_result, params,
+        initial_capital=agent_state.get("initial_capital", capital),
+        confidence=regime_result.confidence,
+        inflection_score=scan_result.score,
     )
 
-    # ━━━━ 5E: Open Risk Budget Check ━━━━
+    # ━━━━ 5E: Exposure & Risk Budget Checks ━━━━
+
+    # 5E-1: Position count limits
+    open_count = agent_state.get("open_positions_count", 0)
+    max_per_agent = EXPOSURE_LIMITS["max_positions_per_agent"]
+    if open_count >= max_per_agent:
+        logger.info("Agent %s at max positions (%d/%d)", agent_id, open_count, max_per_agent)
+        return None
+
+    portfolio_count = agent_state.get("portfolio_positions_count", 0)
+    max_portfolio = EXPOSURE_LIMITS["max_portfolio_positions"]
+    if portfolio_count >= max_portfolio:
+        logger.info("Portfolio at max positions (%d/%d)", portfolio_count, max_portfolio)
+        return None
+
+    # 5E-2: Per-symbol duplicate check
+    max_per_symbol = EXPOSURE_LIMITS["max_positions_per_symbol"]
+    symbol_count = agent_state.get("symbol_positions", {}).get(symbol, 0)
+    if symbol_count >= max_per_symbol:
+        logger.info("Agent %s already has %d position(s) on %s", agent_id, symbol_count, symbol)
+        return None
+
+    # 5E-3: Single-coin exposure check
+    max_coin_pct = EXPOSURE_LIMITS["max_single_coin_exposure_pct"]
+    coin_exposure = agent_state.get("coin_exposure_usd", {}).get(symbol, 0.0)
+    total_capital = agent_state.get("total_capital", capital)
+    if total_capital > 0 and (coin_exposure + notional_usd) / total_capital > max_coin_pct:
+        logger.info(
+            "Single-coin exposure limit: %s would be %.1f%% of capital",
+            symbol, (coin_exposure + notional_usd) / total_capital * 100,
+        )
+        return None
+
+    # 5E-4: Open Risk Budget Check
     exit_params = params.get("exit", {})
     max_open_risk_pct = exit_params.get("max_open_risk_pct", 0.05)
     sl_pct = abs(entry_price - sl) / entry_price if entry_price > 0 else 0.02

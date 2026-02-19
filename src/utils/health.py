@@ -24,6 +24,7 @@ def register_components(
     position_manager=None,
     equity_tracker=None,
     evolver=None,
+    advisor=None,
 ) -> None:
     """Register live component references for health reporting."""
     global _start_time
@@ -38,6 +39,8 @@ def register_components(
         _components["equity_tracker"] = equity_tracker
     if evolver:
         _components["evolver"] = evolver
+    if advisor:
+        _components["advisor"] = advisor
 
 
 def _build_status() -> dict:
@@ -94,6 +97,17 @@ def _build_status() -> dict:
         status["checks"]["evolver"] = {
             "cycles_run": cycles_run,
             "last_cycle_ts": last_cycle,
+            "healthy": True,
+        }
+
+    # Market Advisor
+    advisor = _components.get("advisor")
+    if advisor:
+        last_update = advisor._last_update_ts
+        age = now - last_update if last_update > 0 else -1
+        status["checks"]["advisor"] = {
+            "symbols_tracked": len(advisor._advice),
+            "last_update_age_sec": round(age, 1) if age >= 0 else None,
             "healthy": True,
         }
 

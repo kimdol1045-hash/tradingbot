@@ -12,6 +12,7 @@ import os
 import signal
 import sys
 
+from src.ai.market_advisor import MarketAdvisor
 from src.collector.collector import DataCollector
 from src.exchange.executor import OrderExecutor
 from src.exchange.reconciliation import reconcile_on_startup
@@ -20,7 +21,7 @@ from src.openclaw.evolver import Evolver
 from src.pipeline.equity_tracker import EquityTracker
 from src.pipeline.position_manager import PositionManager
 from src.pipeline.runner import PipelineRunner
-from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, HYPERLIQUID_KEY, LOG_LEVEL
+from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, LOG_LEVEL, get_wallet_configs
 from src.utils.db import init_db
 from src.utils.health import register_components, start_health_server
 
@@ -36,6 +37,8 @@ logger = logging.getLogger("main")
 # ── Configuration ──
 TOTAL_CAPITAL = float(os.getenv("TOTAL_CAPITAL", "10000"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
+ADVISOR_ENABLED = os.getenv("ADVISOR_ENABLED", "true").lower() == "true"
+ADVISOR_INTERVAL_HOURS = float(os.getenv("ADVISOR_INTERVAL_HOURS", "1"))
 
 
 def _setup_global_exception_handler():
@@ -68,21 +71,28 @@ async def main() -> None:
     collector = DataCollector()
     equity_tracker = EquityTracker()
 
-    # Wallet address for exchange queries (derived from private key)
-    wallet_address = ""
-    if HYPERLIQUID_KEY and not DRY_RUN:
-        try:
-            import eth_account
-            wallet_address = eth_account.Account.from_key(HYPERLIQUID_KEY).address
-        except Exception:
-            logger.warning("Could not derive wallet address from key")
+    # Load per-agent wallet configs (multi-wallet or legacy fallback)
+    wallet_configs = get_wallet_configs() if not DRY_RUN else {}
+    if wallet_configs:
+        logger.info(
+            "Multi-wallet mode: %d wallets (%s)",
+            len(wallet_configs),
+            ", ".join(f"{k}={v.wallet_address[:10]}..." for k, v in wallet_configs.items()),
+        )
+    elif not DRY_RUN:
+        logger.warning("No wallet keys configured — live trading unavailable")
 
-    executor = OrderExecutor(db=db, dry_run=DRY_RUN, wallet_address=wallet_address)
+    executor = OrderExecutor(db=db, dry_run=DRY_RUN, wallet_configs=wallet_configs)
     position_mgr = PositionManager(executor=executor, dry_run=DRY_RUN)
+    advisor = MarketAdvisor(
+        candle_cache=collector.cache,
+        interval_hours=ADVISOR_INTERVAL_HOURS,
+    ) if ADVISOR_ENABLED else None
     pipeline = PipelineRunner(
         candle_cache=collector.cache,
         position_manager=position_mgr,
         db=db,
+        advisor=advisor,
     )
     evolver = Evolver(equity_tracker=equity_tracker, position_manager=position_mgr)
 
@@ -103,6 +113,7 @@ async def main() -> None:
         position_manager=position_mgr,
         equity_tracker=equity_tracker,
         evolver=evolver,
+        advisor=advisor,
     )
 
     # ── Signal handlers ──
@@ -111,7 +122,7 @@ async def main() -> None:
         loop.add_signal_handler(
             sig,
             lambda: asyncio.create_task(
-                shutdown(collector, position_mgr, evolver, db),
+                shutdown(collector, position_mgr, evolver, advisor, db),
             ),
         )
 
@@ -137,16 +148,21 @@ async def main() -> None:
             f"Capital: ${TOTAL_CAPITAL:,.0f}\n"
             f"Agents: {', '.join(AGENT_PROFILES.keys())}\n"
             f"Symbols: {', '.join(ALL_SYMBOLS)}\n"
+            f"Advisor: {'ON' if advisor else 'OFF'}"
+            f"{f' ({ADVISOR_INTERVAL_HOURS}h interval)' if advisor else ''}\n"
             f"Reconciliation: {recon['matched']} matched, {recon['stale']} stale, {recon['orphaned']} orphaned"
         )
 
         # Run all components concurrently
-        await asyncio.gather(
+        coros = [
             collector.run_forever(),
             position_mgr.monitor_loop(interval=5.0),
             evolver.run_loop(interval_hours=float(os.getenv("EVOLVER_INTERVAL_HOURS", "4"))),
             start_health_server(port=int(os.getenv("HEALTH_PORT", "8080"))),
-        )
+        ]
+        if advisor:
+            coros.append(advisor.run_loop())
+        await asyncio.gather(*coros)
     except KeyboardInterrupt:
         pass
     except Exception:
@@ -157,6 +173,8 @@ async def main() -> None:
             pass
     finally:
         evolver.stop()
+        if advisor:
+            advisor.stop()
         position_mgr.stop()
         await collector.stop()
         await db.close()
@@ -167,10 +185,13 @@ async def shutdown(
     collector: DataCollector,
     position_mgr: PositionManager,
     evolver: Evolver,
+    advisor: MarketAdvisor | None,
     db,
 ) -> None:
     logger.info("Shutdown signal received")
     evolver.stop()
+    if advisor:
+        advisor.stop()
     position_mgr.stop()
     await collector.stop()
     if db:

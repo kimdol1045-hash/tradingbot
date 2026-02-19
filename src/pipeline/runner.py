@@ -25,16 +25,18 @@ logger = logging.getLogger(__name__)
 class PipelineRunner:
     """Runs the 5-phase pipeline for all agents."""
 
-    def __init__(self, candle_cache, position_manager=None, db=None):
+    def __init__(self, candle_cache, position_manager=None, db=None, advisor=None):
         """
         Args:
             candle_cache: CandleCache with get(symbol, tf) method
             position_manager: PositionManager for signal execution
             db: aiosqlite connection for pipeline logging (optional)
+            advisor: MarketAdvisor for AI-based leverage/SL adjustment (optional)
         """
         self.cache = candle_cache
         self.pm = position_manager
         self.db = db
+        self.advisor = advisor
 
         # Per-agent state
         self.agent_states: dict[str, dict] = {}
@@ -50,6 +52,7 @@ class PipelineRunner:
                 "open_risk": 0.0,
                 "rolling_pf": 2.0,
                 "consecutive_losses": 0,
+                "initial_capital": 0.0,
                 "open_positions_count": 0,
                 "avg_atr_7d": 0.0,
             }
@@ -62,6 +65,9 @@ class PipelineRunner:
         """Set agent capital allocation."""
         if agent_id in self.agent_states:
             self.agent_states[agent_id]["capital"] = capital
+            # initial_capital is set once and never changes (for 단리 mode)
+            if self.agent_states[agent_id].get("initial_capital", 0.0) == 0.0:
+                self.agent_states[agent_id]["initial_capital"] = capital
 
     def update_mdd(self, agent_id: str, mdd: float):
         """Update current MDD for agent."""
@@ -301,6 +307,14 @@ class PipelineRunner:
         signals: list[Signal] = []
         agent_order = ["s1", "s2", "s3", "s4"]
 
+        # Fetch AI advisor multipliers once per symbol (shared across agents)
+        ai_lev_mult = 1.0
+        ai_sl_mult = 1.0
+        if self.advisor:
+            advice = self.advisor.get_advice(symbol)
+            ai_lev_mult = advice["ai_leverage_mult"]
+            ai_sl_mult = advice["ai_sl_mult"]
+
         for agent_id in agent_order:
             profile = AGENT_PROFILES.get(agent_id)
             if not profile:
@@ -310,6 +324,10 @@ class PipelineRunner:
             allowed_symbols = get_agent_symbols(agent_id)
             if symbol not in allowed_symbols:
                 continue
+
+            # Inject AI advisor multipliers into agent state
+            self.agent_states[agent_id]["ai_leverage_mult"] = ai_lev_mult
+            self.agent_states[agent_id]["ai_sl_mult"] = ai_sl_mult
 
             signal = self.run_agent(agent_id, symbol)
             if signal:
