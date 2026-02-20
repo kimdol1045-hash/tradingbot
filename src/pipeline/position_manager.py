@@ -10,7 +10,9 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from src.notify.telegram import notify_exit, notify_fill
 from src.pipeline.models import Signal
+from src.utils.async_helpers import safe_fire_and_forget
 from src.utils.config import AGENT_PROFILES
 
 logger = logging.getLogger(__name__)
@@ -39,14 +41,16 @@ class ManagedPosition:
 class PositionManager:
     """Manages position lifecycle: entry → monitor → exit."""
 
-    def __init__(self, executor=None, dry_run: bool = True):
+    def __init__(self, executor=None, dry_run: bool = True, equity_tracker=None):
         """
         Args:
             executor: OrderExecutor instance (or None for legacy mode)
             dry_run: If True, simulate orders without sending to exchange
+            equity_tracker: EquityTracker instance for equity curve persistence
         """
         self.executor = executor
         self.dry_run = dry_run
+        self.equity_tracker = equity_tracker
         self.positions: dict[str, ManagedPosition] = {}  # signal_id → position
         self._running = False
 
@@ -84,6 +88,12 @@ class PositionManager:
             sig.direction, sig.symbol, pos.fill_price, pos.fill_qty,
         )
 
+        # Telegram fill notification
+        safe_fire_and_forget(
+            notify_fill(sig, pos.fill_price, pos.exchange_order_id),
+            name="notify_fill",
+        )
+
     async def _execute_entry(self, pos: ManagedPosition):
         """Send entry order via executor."""
         sig = pos.signal
@@ -107,6 +117,12 @@ class PositionManager:
                 logger.info(
                     "FILLED: %s %s @ %.2f (dry=%s)",
                     sig.direction, sig.symbol, pos.fill_price, result.dry_run,
+                )
+
+                # Telegram fill notification
+                safe_fire_and_forget(
+                    notify_fill(sig, pos.fill_price, pos.exchange_order_id),
+                    name="notify_fill",
                 )
             else:
                 pos.status = "closed"
@@ -227,11 +243,26 @@ class PositionManager:
 
         # Record exit in DB via executor
         if self.executor:
-            pnl_pct = (pos.pnl / (sig.notional_usd / sig.leverage) * 100) if sig.leverage > 0 else 0
-            asyncio.ensure_future(
+            margin = (sig.notional_usd / sig.leverage) if sig.leverage > 0 and sig.notional_usd > 0 else 0
+            pnl_pct = (pos.pnl / margin * 100) if margin > 0 else 0
+            safe_fire_and_forget(
                 self.executor.record_exit(
                     sig.signal_id, close_price, pos.pnl, pnl_pct, reason,
-                )
+                ),
+                name="record_exit",
+            )
+
+        # Telegram exit notification
+        safe_fire_and_forget(
+            notify_exit(sig, close_price, pos.pnl, reason),
+            name="notify_exit",
+        )
+
+        # Update equity tracker (persists to equity_curve table)
+        if self.equity_tracker:
+            safe_fire_and_forget(
+                self.equity_tracker.record_trade(sig.agent_id, pos.pnl),
+                name="record_trade",
             )
 
     def get_open_positions(self, agent_id: str | None = None) -> list[ManagedPosition]:
@@ -308,6 +339,43 @@ class PositionManager:
                 logger.exception("Position manager error")
 
             await asyncio.sleep(interval)
+
+    async def close_all_positions(self, agent_id: str, reason: str = "EMERGENCY"):
+        """Close all open positions for an agent. Used by CLOSE_ALL_AND_HALT."""
+        positions = self.get_open_positions(agent_id)
+        if not positions:
+            logger.info("No open positions to close for %s", agent_id)
+            return 0
+
+        closed = 0
+        for pos in positions:
+            try:
+                sig = pos.signal
+                # Use current entry price as close price (best estimate before exchange confirms)
+                close_price = pos.fill_price if pos.fill_price > 0 else sig.entry_price
+
+                if self.executor and not self.dry_run:
+                    result = await self.executor.close_position(
+                        sig.symbol, sig.direction, abs(pos.fill_qty),
+                        reason=reason, agent_id=agent_id,
+                    )
+                    if not result.success:
+                        logger.error(
+                            "Failed to close %s %s for %s: %s",
+                            sig.symbol, sig.signal_id[:8], agent_id, result.error,
+                        )
+                        continue
+
+                self._close_position(pos, close_price, reason)
+                closed += 1
+            except Exception:
+                logger.exception("Error closing position %s for %s", pos.signal.signal_id[:8], agent_id)
+
+        logger.warning(
+            "EMERGENCY CLOSE: %s — closed %d/%d positions",
+            agent_id, closed, len(positions),
+        )
+        return closed
 
     def stop(self):
         """Stop the monitoring loop."""

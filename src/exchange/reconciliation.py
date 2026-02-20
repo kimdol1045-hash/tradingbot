@@ -20,6 +20,25 @@ from src.exchange.executor import OrderExecutor
 logger = logging.getLogger(__name__)
 
 
+def _best_agent_for_symbol(agent_ids: list[str], symbol: str) -> str:
+    """Find the best agent_id for a given symbol based on tier policy.
+
+    Falls back to first agent_id if no match found.
+    """
+    if not agent_ids or agent_ids == [""]:
+        return agent_ids[0] if agent_ids else ""
+
+    try:
+        from src.utils.config import get_agent_symbols
+        for agent_id in agent_ids:
+            if symbol in get_agent_symbols(agent_id):
+                return agent_id
+    except Exception:
+        pass
+
+    return agent_ids[0]
+
+
 def _group_agents_by_wallet(executor: OrderExecutor) -> dict[str, list[str]]:
     """Group agent IDs by wallet address for per-wallet reconciliation.
 
@@ -111,15 +130,17 @@ async def _reconcile_wallet(
                 summary["errors"] += 1
 
     # Check for orphaned positions (exchange has, DB doesn't)
-    # Use first agent_id for orphan close operations
-    close_agent = agent_ids[0] if agent_ids else ""
     for key, ex_pos in exchange_map.items():
         if key not in db_keys:
             summary["orphaned"] += 1
+
+            # Try to find the best agent for this orphan's symbol based on tier policy
+            close_agent = _best_agent_for_symbol(agent_ids, ex_pos["symbol"])
+
             logger.warning(
-                "Reconcile ORPHAN: %s %s size=%.6f on exchange but not in DB (wallet=%s)",
+                "Reconcile ORPHAN: %s %s size=%.6f on exchange but not in DB (wallet=%s, agent=%s)",
                 ex_pos["direction"], ex_pos["symbol"], abs(ex_pos["size"]),
-                wallet_address[:10],
+                wallet_address[:10], close_agent,
             )
             # Close orphaned position for safety
             try:

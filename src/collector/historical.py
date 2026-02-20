@@ -23,16 +23,18 @@ logger = logging.getLogger(__name__)
 
 BINANCE_FUTURES_URL = "https://fapi.binance.com/fapi/v1/klines"
 
-# Binance symbol mapping
+# Binance symbol mapping (special cases only; default is {SYM}USDT)
 SYMBOL_MAP_BINANCE = {
-    "BTC": "BTCUSDT",
-    "ETH": "ETHUSDT",
-    "SOL": "SOLUSDT",
-    "XRP": "XRPUSDT",
-    "DOGE": "DOGEUSDT",
-    "AVAX": "AVAXUSDT",
-    "LINK": "LINKUSDT",
+    "1000PEPE": "1000PEPEUSDT",
+    "1000SHIB": "1000SHIBUSDT",
+    "1000BONK": "1000BONKUSDT",
+    "1000FLOKI": "1000FLOKIUSDT",
 }
+
+
+def _to_binance_symbol(symbol: str) -> str:
+    """Convert Hyperliquid symbol to Binance Futures symbol."""
+    return SYMBOL_MAP_BINANCE.get(symbol, f"{symbol}USDT")
 
 # Binance TF mapping
 TF_MAP_BINANCE = {"5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h"}
@@ -44,12 +46,8 @@ BINANCE_LIMIT = 1500
 async def fetch_binance_candles(
     symbol: str, timeframe: str, start_ms: int, end_ms: int,
 ) -> list[dict]:
-    """Fetch candles from Binance Futures in chunks."""
-    binance_symbol = SYMBOL_MAP_BINANCE.get(symbol)
-    if not binance_symbol:
-        logger.warning("No Binance mapping for %s", symbol)
-        return []
-
+    """Fetch candles from Binance Futures in chunks. Auto-maps symbol to {SYM}USDT."""
+    binance_symbol = _to_binance_symbol(symbol)
     binance_tf = TF_MAP_BINANCE.get(timeframe, timeframe)
     tf_ms = TIMEFRAME_MINUTES.get(timeframe, 5) * 60 * 1000
     all_candles: list[dict] = []
@@ -76,8 +74,13 @@ async def fetch_binance_candles(
                     await asyncio.sleep(wait)
                     continue
 
+                if resp.status_code == 400:
+                    # Invalid symbol — coin doesn't exist on Binance
+                    logger.debug("Binance: %s not found (400)", binance_symbol)
+                    return []
+
                 if resp.status_code != 200:
-                    logger.error("Binance API error: %d", resp.status_code)
+                    logger.error("Binance API error %s: %d", binance_symbol, resp.status_code)
                     break
 
                 data = resp.json()
@@ -121,34 +124,68 @@ async def fetch_binance_candles(
 
 async def fetch_hyperliquid_candles_chunked(
     symbol: str, timeframe: str, start_ms: int, end_ms: int,
+    info=None,
 ) -> list[dict]:
-    """Fetch candles from Hyperliquid REST API in chunks."""
+    """Fetch candles from Hyperliquid REST API in chunks.
+
+    Args:
+        info: Optional pre-created Info client. Creates one if not provided.
+    """
     from src.exchange.hyperliquid import fetch_candles, get_info_client
 
-    info = get_info_client()
+    if info is None:
+        info = get_info_client()
     tf_ms = TIMEFRAME_MINUTES.get(timeframe, 5) * 60 * 1000
-    chunk_size = 500  # candles per request
+    # Larger chunks = fewer API calls. HL API can return 5000+ candles per request.
+    chunk_size = 5000
     chunk_ms = chunk_size * tf_ms
     all_candles: list[dict] = []
 
     current_start = start_ms
+    max_retries = 8
 
     while current_start < end_ms:
         chunk_end = min(current_start + chunk_ms, end_ms)
-        try:
-            candles = fetch_candles(info, symbol, timeframe, current_start, chunk_end)
-            if candles:
-                all_candles.extend(candles)
-                logger.debug(
-                    "HL %s %s: fetched %d candles (total: %d)",
-                    symbol, timeframe, len(candles), len(all_candles),
+        retries = 0
+        success = False
+
+        while retries < max_retries and not success:
+            try:
+                # Run synchronous fetch_candles in a thread with 30s timeout
+                candles = await asyncio.wait_for(
+                    asyncio.to_thread(fetch_candles, info, symbol, timeframe, current_start, chunk_end),
+                    timeout=30,
                 )
-            current_start = chunk_end
-            await asyncio.sleep(0.2)  # Rate limit
-        except Exception:
-            logger.exception("HL fetch error: %s %s", symbol, timeframe)
-            current_start = chunk_end
-            await asyncio.sleep(1)
+                if candles:
+                    all_candles.extend(candles)
+                    logger.debug(
+                        "HL %s %s: fetched %d candles (total: %d)",
+                        symbol, timeframe, len(candles), len(all_candles),
+                    )
+                success = True
+                await asyncio.sleep(1.0)  # Rate limit — 1 req/s is safe
+            except asyncio.TimeoutError:
+                retries += 1
+                logger.warning(
+                    "HL %s %s: timeout (30s), retry %d/%d",
+                    symbol, timeframe, retries, max_retries,
+                )
+                await asyncio.sleep(2)
+            except Exception as e:
+                retries += 1
+                is_429 = "429" in str(e)
+                wait = min(2 ** retries * 2, 60) if is_429 else 2
+                if retries < max_retries:
+                    logger.warning(
+                        "HL %s %s: retry %d/%d (wait %ds): %s",
+                        symbol, timeframe, retries, max_retries, wait,
+                        str(e)[:100],
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error("HL %s %s: giving up after %d retries", symbol, timeframe, max_retries)
+
+        current_start = chunk_end
 
     return all_candles
 

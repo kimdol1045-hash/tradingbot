@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import time
 
 from src.pipeline.models import Signal
@@ -251,7 +252,7 @@ def calculate_position_size(
     risk_mode = exit_params.get("risk_mode", "percent")
 
     sl_pct = abs(entry_price - sl_price) / entry_price if entry_price > 0 else 0.01
-    if sl_pct <= 0:
+    if sl_pct < 0.0001:  # Floor at 1 bps to prevent division explosion
         sl_pct = 0.01
 
     # R = max loss in USD
@@ -279,7 +280,8 @@ def calculate_position_size(
 # ═══ Signal ID ═══
 
 def _generate_signal_id(agent_id: str, symbol: str, direction: str, ts: int) -> str:
-    raw = f"{agent_id}_{symbol}_{direction}_{ts}"
+    nonce = os.urandom(4).hex()
+    raw = f"{agent_id}_{symbol}_{direction}_{ts}_{nonce}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -325,19 +327,40 @@ def phase5_execute(
         regime_result, gate_result, safety_result, scan_result, agent_state, params,
     )
 
+    # Clamp to exchange per-coin max leverage
+    exchange_max_lev = agent_state.get("max_leverage_map", {}).get(symbol)
+    if exchange_max_lev and leverage > exchange_max_lev:
+        logger.debug("Clamping leverage %s: %.1f → %d (exchange limit)", symbol, leverage, exchange_max_lev)
+        leverage = float(exchange_max_lev)
+
     # ━━━━ 5B: Stop Loss ━━━━
+    atr = scan_result.atr
+    if atr <= 0:
+        logger.debug("[%s/%s] ATR is zero, cannot compute SL", agent_id, symbol)
+        return None
+
     sl = calculate_stop_loss(
-        direction, entry_price, scan_result.atr,
+        direction, entry_price, atr,
         scan_result.sr_levels, safety_result,
         gate_result.mdd_mode, params,
         agent_state=agent_state,
     )
 
+    # Guard: SL must be different from entry
+    sl_distance = abs(entry_price - sl)
+    if sl_distance < entry_price * 0.0001:  # Less than 1 bps
+        logger.debug("[%s/%s] SL too close to entry (%.2f vs %.2f)", agent_id, symbol, sl, entry_price)
+        return None
+
     # ━━━━ 5C: Take Profits ━━━━
     tps = calculate_take_profits(
-        direction, entry_price, sl, scan_result.atr,
+        direction, entry_price, sl, atr,
         scan_result.pattern_target_atr, params,
     )
+
+    if not tps:
+        logger.debug("[%s/%s] No valid TP levels generated", agent_id, symbol)
+        return None
 
     # ━━━━ 5D: Position Sizing ━━━━
     capital = agent_state.get("capital", 10000)
@@ -347,6 +370,14 @@ def phase5_execute(
         confidence=regime_result.confidence,
         inflection_score=scan_result.score,
     )
+
+    # Cap notional to prevent oversized positions (max 40% of capital per trade)
+    max_notional = capital * 0.40 * leverage
+    if max_notional > 0 and notional_usd > max_notional:
+        logger.debug("[%s/%s] Notional capped: $%.0f → $%.0f", agent_id, symbol, notional_usd, max_notional)
+        notional_usd = round(max_notional, 2)
+        margin_usd = round(notional_usd / leverage, 2) if leverage > 0 else notional_usd
+        order_qty = round(notional_usd / entry_price, 6) if entry_price > 0 else 0
 
     # ━━━━ 5E: Exposure & Risk Budget Checks ━━━━
 

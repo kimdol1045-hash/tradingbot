@@ -174,6 +174,8 @@ class DataCollector:
         self._running = False
         self._aux_data: dict[str, dict] = {}  # symbol → latest asset context
         self.on_candle_close_callback = None  # (symbol, timeframe) → called on candle close
+        self._ws_connected = False
+        self._last_msg_ts = 0.0
 
     async def start(self, symbols: list[str] | None = None) -> None:
         """Initialize DB and start WebSocket subscriptions."""
@@ -206,6 +208,7 @@ class DataCollector:
             asyncio.create_task(self._process_ws_events()),
             asyncio.create_task(self._poll_aux_data()),
             asyncio.create_task(self._wal_checkpoint()),
+            asyncio.create_task(self._ws_watchdog()),
         ]
         try:
             await asyncio.gather(*tasks)
@@ -223,6 +226,9 @@ class DataCollector:
 
             event_type = msg["type"]
             data = msg["data"]
+
+            self._ws_connected = True
+            self._last_msg_ts = time.time()
 
             try:
                 if event_type == "candle":
@@ -326,6 +332,31 @@ class DataCollector:
 
             await asyncio.sleep(30)
 
+    async def _ws_watchdog(self) -> None:
+        """Monitor WS health — alert if no messages received for 5 minutes."""
+        stale_threshold = 300  # 5 minutes
+        while self._running:
+            await asyncio.sleep(60)
+            if self._last_msg_ts > 0:
+                silence = time.time() - self._last_msg_ts
+                if silence > stale_threshold:
+                    logger.warning(
+                        "WS watchdog: no messages for %.0fs — possible disconnect",
+                        silence,
+                    )
+                    # Try to reconnect
+                    try:
+                        if self._ws:
+                            self._ws.disconnect()
+                            await asyncio.sleep(2)
+                            loop = asyncio.get_event_loop()
+                            self._ws = HyperliquidWS(loop=loop)
+                            self._ws.subscribe_all(ALL_SYMBOLS)
+                            self._last_msg_ts = time.time()  # Reset watchdog
+                            logger.info("WS reconnected after silence")
+                    except Exception:
+                        logger.exception("WS reconnect failed")
+
     async def _wal_checkpoint(self) -> None:
         """Run WAL checkpoint every hour (TRUNCATE mode)."""
         while self._running:
@@ -335,6 +366,24 @@ class DataCollector:
                 logger.info("WAL checkpoint completed")
             except Exception:
                 logger.exception("WAL checkpoint failed")
+
+    async def add_symbols(self, new_symbols: list[str]) -> None:
+        """Subscribe to new symbols and backfill their data.
+
+        Called after screener reloads the symbol pool to ensure
+        collector tracks all symbols the pipeline needs.
+        """
+        if not new_symbols:
+            return
+
+        # Subscribe WS for new symbols
+        if self._ws:
+            self._ws.subscribe_candles(new_symbols)
+            self._ws.subscribe_asset_contexts(new_symbols)
+            logger.info("Subscribed %d new symbols: %s", len(new_symbols), new_symbols)
+
+        # Backfill history for new symbols
+        await self.backfill(symbols=new_symbols)
 
     async def backfill(
         self,

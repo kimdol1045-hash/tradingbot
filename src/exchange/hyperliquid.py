@@ -92,7 +92,7 @@ def fetch_asset_contexts(info: Info) -> dict[str, dict]:
             "mark_price": float(ctx.get("markPx", 0)),
             "oracle_price": float(ctx.get("oraclePx", 0)),
             "day_volume": float(ctx.get("dayNtlVlm", 0)),
-            "premium": float(ctx.get("premium", 0)),
+            "premium": float(ctx.get("premium") or 0),
         }
     return asset_map
 
@@ -286,6 +286,74 @@ def get_user_state(info: Info, address: str) -> dict[str, Any]:
     return info.user_state(address)
 
 
+def fetch_wallet_balance(info: Info, address: str) -> float:
+    """Fetch wallet's total account value (equity) in USD.
+
+    Checks both perps and spot accounts for unified account compatibility.
+    """
+    state = info.user_state(address)
+    margin = state.get("marginSummary", {})
+    perp_value = float(margin.get("accountValue", 0))
+
+    # Also check spot USDC for unified accounts
+    spot_usdc = 0.0
+    try:
+        spot_state = info.spot_user_state(address)
+        for bal in spot_state.get("balances", []):
+            if bal.get("coin") == "USDC":
+                spot_usdc = float(bal.get("total", 0))
+                break
+    except Exception:
+        pass
+
+    return perp_value + spot_usdc
+
+
 def get_open_orders(info: Info, address: str) -> list[dict]:
     """Get user's open orders."""
     return info.open_orders(address)
+
+
+# ═══ Max Leverage Cache ═══
+
+_max_leverage_cache: dict[str, int] = {}
+_max_leverage_ts: float = 0.0
+_MAX_LEVERAGE_TTL = 3600  # Refresh every 1 hour
+
+
+def fetch_max_leverages(info: Info | None = None) -> dict[str, int]:
+    """
+    Fetch max leverage per coin from Hyperliquid meta endpoint.
+    Returns {symbol: max_leverage}. Cached for 1 hour.
+    """
+    global _max_leverage_cache, _max_leverage_ts
+
+    now = time.time()
+    if _max_leverage_cache and (now - _max_leverage_ts) < _MAX_LEVERAGE_TTL:
+        return _max_leverage_cache
+
+    if info is None:
+        info = get_info_client()
+
+    try:
+        meta = info.meta()
+        universe = meta.get("universe", [])
+        result = {}
+        for asset in universe:
+            name = asset.get("name", "")
+            max_lev = int(asset.get("maxLeverage", 50))
+            if name:
+                result[name] = max_lev
+        _max_leverage_cache = result
+        _max_leverage_ts = now
+        logger.debug("Max leverage cache refreshed: %d assets", len(result))
+    except Exception:
+        logger.warning("Failed to fetch max leverages", exc_info=True)
+
+    return _max_leverage_cache
+
+
+def get_max_leverage(symbol: str, info: Info | None = None) -> int:
+    """Get max leverage for a specific coin. Returns 50 if unknown."""
+    cache = fetch_max_leverages(info)
+    return cache.get(symbol, 50)

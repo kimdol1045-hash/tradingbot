@@ -25,6 +25,7 @@ def register_components(
     equity_tracker=None,
     evolver=None,
     advisor=None,
+    screener=None,
 ) -> None:
     """Register live component references for health reporting."""
     global _start_time
@@ -168,7 +169,11 @@ async def _handle_request(reader: StreamReader, writer: StreamWriter) -> None:
 
 async def start_health_server(host: str = "0.0.0.0", port: int = 8080) -> None:
     """Start the health check HTTP server."""
-    server = await asyncio.start_server(_handle_request, host, port)
+    try:
+        server = await asyncio.start_server(_handle_request, host, port)
+    except OSError as e:
+        logger.error("Health server failed to bind %s:%d — %s", host, port, e)
+        return
     logger.info("Health check server listening on %s:%d", host, port)
     async with server:
         await server.serve_forever()

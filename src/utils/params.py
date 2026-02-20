@@ -16,13 +16,20 @@ from src.utils.config import PARAMS_DIR
 logger = logging.getLogger(__name__)
 
 
-def load_params(agent_id: str) -> dict:
-    """Load params.json for an agent."""
+def load_params(agent_id: str, raise_on_missing: bool = False) -> dict:
+    """Load params.json for an agent. Returns empty dict if not found."""
     path = PARAMS_DIR / agent_id / "params.json"
     if not path.exists():
-        raise FileNotFoundError(f"Params not found: {path}")
-    with open(path) as f:
-        return json.load(f)
+        if raise_on_missing:
+            raise FileNotFoundError(f"Params not found: {path}")
+        logger.warning("Params file not found: %s — using empty defaults", path)
+        return {}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error("Failed to load params for %s: %s", agent_id, e)
+        return {}
 
 
 def save_params(agent_id: str, params: dict) -> None:

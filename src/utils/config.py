@@ -79,6 +79,53 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 
+# ═══ Wallet Addresses (read-only balance monitoring) ═══
+
+def get_wallet_addresses() -> dict[str, str]:
+    """
+    Load per-agent wallet addresses from environment.
+    Used for balance monitoring — no private key needed.
+    Falls back to addresses derived from HYPERLIQUID_KEY_Sx if WALLET_ADDRESS_Sx is not set.
+    Returns {agent_id: address}.
+    """
+    addresses: dict[str, str] = {}
+    for agent_id in ("s1", "s2", "s3", "s4"):
+        addr = os.getenv(f"WALLET_ADDRESS_{agent_id.upper()}", "")
+        if addr:
+            addresses[agent_id] = addr
+    return addresses
+
+
+def _safe_int(env_key: str, default: int) -> int:
+    """Parse int env var, return default on invalid value."""
+    raw = os.getenv(env_key, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        _logger.warning("Invalid int for %s=%r, using default %d", env_key, raw, default)
+        return default
+
+
+def _safe_float(env_key: str, default: float) -> float:
+    """Parse float env var, return default on invalid value."""
+    raw = os.getenv(env_key, "")
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        _logger.warning("Invalid float for %s=%r, using default %.2f", env_key, raw, default)
+        return default
+
+
+# ═══ Screener Schedule ═══
+
+SCREENER_INTERVAL_HOURS = _safe_int("SCREENER_INTERVAL_HOURS", 72)
+SCREENER_START_HOUR_UTC = _safe_int("SCREENER_START_HOUR_UTC", 3)
+SCREENER_MIN_VOLUME_M = _safe_float("SCREENER_MIN_VOLUME_M", 1.0)
+
 # ═══ Symbol Pool ═══
 
 SYMBOL_POOL: dict[str, list[str]] = {
@@ -88,6 +135,51 @@ SYMBOL_POOL: dict[str, list[str]] = {
 }
 
 ALL_SYMBOLS: list[str] = [s for tier in SYMBOL_POOL.values() for s in tier]
+
+
+def reload_symbol_pool() -> dict[str, list[str]]:
+    """Reload SYMBOL_POOL and ALL_SYMBOLS from symbols.json if it exists."""
+    global SYMBOL_POOL, ALL_SYMBOLS
+    import json
+
+    symbols_path = PROJECT_ROOT / "symbols.json"
+    if not symbols_path.exists():
+        _logger.warning("symbols.json not found, keeping default pool")
+        return SYMBOL_POOL
+
+    try:
+        with open(symbols_path) as f:
+            data = json.load(f)
+
+        pool = data.get("symbol_pool", {})
+        if not pool:
+            _logger.warning("symbols.json has empty symbol_pool, keeping default")
+            return SYMBOL_POOL
+
+        # Validate structure: each tier must be a list of strings
+        valid_pool: dict[str, list[str]] = {}
+        for tier, symbols in pool.items():
+            if not isinstance(symbols, list):
+                _logger.warning("symbols.json tier '%s' is not a list, skipping", tier)
+                continue
+            valid_symbols = [s for s in symbols if isinstance(s, str) and s]
+            if valid_symbols:
+                valid_pool[tier] = valid_symbols
+
+        if not valid_pool:
+            _logger.warning("symbols.json has no valid tiers, keeping default")
+            return SYMBOL_POOL
+
+        SYMBOL_POOL = valid_pool
+        ALL_SYMBOLS = [s for tier in SYMBOL_POOL.values() for s in tier]
+        _logger.info(
+            "Symbol pool reloaded: %s",
+            {k: len(v) for k, v in SYMBOL_POOL.items()},
+        )
+        return SYMBOL_POOL
+    except Exception:
+        _logger.warning("Failed to reload symbols.json, keeping default", exc_info=True)
+        return SYMBOL_POOL
 
 # ═══ Timeframes ═══
 
@@ -118,9 +210,9 @@ AGENT_PROFILES: dict[str, AgentProfile] = {
     "s1": AgentProfile(
         agent_id="s1",
         timeframes=["5m"],
-        capital_pct=0.15,
+        capital_pct=0.25,
         allowed_tiers=["tier_1"],
-        max_symbols=2,
+        max_symbols=8,
         max_open_risk_pct=0.03,
         description="Scalper (5m only)",
     ),
@@ -129,25 +221,25 @@ AGENT_PROFILES: dict[str, AgentProfile] = {
         timeframes=["5m", "15m"],
         capital_pct=0.25,
         allowed_tiers=["tier_1", "tier_2"],
-        max_symbols=4,
+        max_symbols=12,
         max_open_risk_pct=0.04,
         description="Short-term trader (5m+15m)",
     ),
     "s3": AgentProfile(
         agent_id="s3",
         timeframes=["5m", "15m", "1h"],
-        capital_pct=0.30,
+        capital_pct=0.25,
         allowed_tiers=["tier_1", "tier_2", "tier_3"],
-        max_symbols=6,
+        max_symbols=20,
         max_open_risk_pct=0.05,
         description="Swing trader (5m+15m+1h)",
     ),
     "s4": AgentProfile(
         agent_id="s4",
         timeframes=["5m", "15m", "1h", "4h"],
-        capital_pct=0.30,
+        capital_pct=0.25,
         allowed_tiers=["tier_1", "tier_2"],
-        max_symbols=4,
+        max_symbols=12,
         max_open_risk_pct=0.05,
         description="Position trader (5m+15m+1h+4h)",
     ),
@@ -159,8 +251,11 @@ def get_agent_symbols(agent_id: str) -> list[str]:
     profile = AGENT_PROFILES[agent_id]
     symbols = []
     for tier in profile.allowed_tiers:
-        symbols.extend(SYMBOL_POOL[tier])
-    return symbols[: profile.max_symbols]
+        symbols.extend(SYMBOL_POOL.get(tier, []))
+    result = symbols[: profile.max_symbols]
+    if not result:
+        _logger.warning("Agent %s has no symbols (tiers=%s, pool keys=%s)", agent_id, profile.allowed_tiers, list(SYMBOL_POOL.keys()))
+    return result
 
 
 # ═══ MDD Policies ═══
@@ -202,6 +297,8 @@ MDD_POLICIES: dict[str, dict] = {
 
 def get_mdd_mode(drawdown_pct: float) -> str:
     """Determine MDD mode from current drawdown percentage (0.0~1.0)."""
+    if drawdown_pct < 0:
+        return "normal"
     for mode, policy in MDD_POLICIES.items():
         r = policy.get("range")
         if r and r[0] <= drawdown_pct < r[1]:

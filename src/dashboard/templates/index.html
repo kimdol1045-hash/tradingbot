@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d28;
+    --border: #2a2d3a;
+    --text: #e0e0e0;
+    --text-dim: #8b8fa3;
+    --green: #00c48c;
+    --red: #ff5c5c;
+    --blue: #4e7cff;
+    --purple: #a855f7;
+    --orange: #f59e0b;
+    --cyan: #06b6d4;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+  .header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .header .dot.degraded { background: var(--orange); }
+  .header .dot.offline { background: var(--red); }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .tab {
+    padding: 12px 20px;
+    font-size: 14px;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+  /* ── Content ── */
+  .content { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Cards Grid ── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .card .value { font-size: 24px; font-weight: 700; }
+  .card .value.positive { color: var(--green); }
+  .card .value.negative { color: var(--red); }
+
+  /* ── Chart ── */
+  .chart-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+  }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .chart-header h3 { font-size: 14px; font-weight: 600; }
+  .chart-controls { display: flex; gap: 4px; }
+  .chart-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .chart-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+  /* ── Tables ── */
+  .table-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: rgba(78, 124, 255, 0.05); }
+
+  /* ── Filters ── */
+  .filters { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+  .filters select, .filters input {
+    padding: 6px 10px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+  }
+  .filters label { font-size: 12px; color: var(--text-dim); }
+
+  /* ── Agent Cards ── */
+  .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .agent-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .agent-card .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .agent-card .agent-name { font-size: 18px; font-weight: 700; }
+  .agent-card .agent-desc { font-size: 12px; color: var(--text-dim); }
+  .agent-stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .agent-stat:last-child { border-bottom: none; }
+  .agent-stat .stat-label { color: var(--text-dim); }
+
+  .pnl-positive { color: var(--green); }
+  .pnl-negative { color: var(--red); }
+  .side-long { color: var(--green); }
+  .side-short { color: var(--red); }
+
+  .empty-state { text-align: center; padding: 48px; color: var(--text-dim); font-size: 14px; }
+
+  /* ── Refresh indicator ── */
+  .refresh-info { font-size: 11px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>Trading Dashboard</h1>
+  <div class="status">
+    <span class="refresh-info" id="lastUpdate">Loading...</span>
+    <span class="dot" id="healthDot"></span>
+    <span id="healthText">--</span>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" data-tab="overview">Overview</div>
+  <div class="tab" data-tab="trades">Trades</div>
+  <div class="tab" data-tab="positions">Positions</div>
+  <div class="tab" data-tab="agents">Agents</div>
+</div>
+
+<!-- Content -->
+<div class="content">
+
+  <!-- Overview Tab -->
+  <div class="tab-panel active" id="panel-overview">
+    <div class="cards" id="summaryCards"></div>
+
+    <!-- Wallet Balances -->
+    <div class="table-container" style="margin-bottom:24px">
+      <table>
+        <thead><tr>
+          <th>Agent</th><th>Address</th><th>Total</th>
+          <th>Perp</th><th>Spot</th><th>Margin Used</th><th>Last Sync</th>
+        </tr></thead>
+        <tbody id="balancesBody">
+          <tr><td colspan="6" class="empty-state">Waiting for balance sync...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="chart-container">
+      <div class="chart-header">
+        <h3>Equity Curve</h3>
+        <div class="chart-controls">
+          <button class="chart-btn" data-hours="24">24h</button>
+          <button class="chart-btn" data-hours="72">3d</button>
+          <button class="chart-btn active" data-hours="168">7d</button>
+          <button class="chart-btn" data-hours="720">30d</button>
+        </div>
+      </div>
+      <canvas id="equityChart" height="80"></canvas>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead><tr>
+          <th>Time</th><th>Agent</th><th>Symbol</th><th>Side</th>
+          <th>PnL ($)</th><th>PnL (%)</th><th>Reason</th>
+        </tr></thead>
+        <tbody id="recentTradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Trades Tab -->
+  <div class="tab-panel" id="panel-trades">
+    <div class="filters">
+      <label>Agent:
+        <select id="filterAgent"><option value="">All</option></select>
+      </label>
+      <label>Symbol:
+        <select id="filterSymbol"><option value="">All</option></select>
+      </label>
+      <label>Limit:
+        <select id="filterLimit">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </label>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead><tr>
+          <th>Time</th><th>Agent</th><th>Symbol</th><th>Side</th>
+          <th>Entry</th><th>Exit</th><th>Leverage</th>
+          <th>PnL ($)</th><th>PnL (%)</th><th>Reason</th>
+        </tr></thead>
+        <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Positions Tab -->
+  <div class="tab-panel" id="panel-positions">
+    <div class="table-container">
+      <table>
+        <thead><tr>
+          <th>Agent</th><th>Symbol</th><th>Direction</th><th>Entry Price</th>
+          <th>Size ($)</th><th>SL %</th><th>Entry Time</th><th>Elapsed</th>
+        </tr></thead>
+        <tbody id="positionsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Agents Tab -->
+  <div class="tab-panel" id="panel-agents">
+    <div class="agent-grid" id="agentGrid"></div>
+  </div>
+
+</div>
+
+<script>
+// ═══ State ═══
+let equityChart = null;
+let equityHours = 168;
+const AGENT_COLORS = { s1: '#4e7cff', s2: '#00c48c', s3: '#f59e0b', s4: '#a855f7' };
+const REFRESH_MS = 30000;
+
+// ═══ Helpers ═══
+function fmt(n, d=2) { return n != null ? Number(n).toFixed(d) : '--'; }
+function fmtUsd(n) { return n != null ? '$' + Number(n).toFixed(2) : '--'; }
+function fmtPct(n) { return n != null ? Number(n).toFixed(2) + '%' : '--'; }
+function pnlClass(n) { return n > 0 ? 'pnl-positive' : n < 0 ? 'pnl-negative' : ''; }
+function sideClass(s) { return s === 'LONG' || s === 'long' ? 'side-long' : 'side-short'; }
+
+function fmtTime(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts > 1e12 ? ts : ts * 1000);
+  return d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+function fmtElapsed(sec) {
+  if (!sec || sec < 0) return '--';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function api(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+// ═══ Tabs ═══
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    refreshCurrent();
+  });
+});
+
+function activeTab() {
+  return document.querySelector('.tab.active')?.dataset.tab || 'overview';
+}
+
+// ═══ Summary Cards ═══
+async function loadSummary() {
+  try {
+    const d = await api('/api/summary');
+    const pnlCls = d.total_pnl >= 0 ? 'positive' : 'negative';
+    document.getElementById('summaryCards').innerHTML = `
+      <div class="card"><div class="label">Total PnL</div><div class="value ${pnlCls}">${fmtUsd(d.total_pnl)}</div></div>
+      <div class="card"><div class="label">Win Rate</div><div class="value">${fmt(d.win_rate,1)}%</div></div>
+      <div class="card"><div class="label">Trades</div><div class="value">${d.total_trades}</div></div>
+      <div class="card"><div class="label">Open Positions</div><div class="value">${d.open_positions}</div></div>
+      <div class="card"><div class="label">Profit Factor</div><div class="value">${d.profit_factor}</div></div>
+      <div class="card"><div class="label">Max Drawdown</div><div class="value">${fmt(d.max_drawdown,2)}%</div></div>
+    `;
+  } catch(e) { console.error('summary error', e); }
+}
+
+// ═══ Equity Chart ═══
+async function loadEquity() {
+  try {
+    const data = await api(`/api/equity?hours=${equityHours}`);
+    // Group by agent
+    const agents = {};
+    data.forEach(d => {
+      if (!agents[d.agent_id]) agents[d.agent_id] = [];
+      agents[d.agent_id].push({ x: new Date(d.timestamp > 1e12 ? d.timestamp : d.timestamp * 1000), y: d.equity });
+    });
+
+    const datasets = Object.entries(agents).map(([id, pts]) => ({
+      label: id.toUpperCase(),
+      data: pts,
+      borderColor: AGENT_COLORS[id] || '#888',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.3,
+    }));
+
+    if (equityChart) equityChart.destroy();
+
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    equityChart = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: '#8b8fa3', font: { size: 11 } } } },
+        scales: {
+          x: { type: 'time', time: { tooltipFormat: 'MMM d, HH:mm' }, ticks: { color: '#8b8fa3', font: { size: 10 } }, grid: { color: '#2a2d3a' } },
+          y: { ticks: { color: '#8b8fa3', font: { size: 10 }, callback: v => '$'+v.toFixed(0) }, grid: { color: '#2a2d3a' } },
+        },
+      },
+    });
+  } catch(e) { console.error('equity error', e); }
+}
+
+// Chart time range buttons
+document.querySelectorAll('.chart-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    equityHours = parseInt(btn.dataset.hours);
+    loadEquity();
+  });
+});
+
+// ═══ Wallet Balances ═══
+async function loadBalances() {
+  try {
+    const data = await api('/api/balances');
+    const tbody = document.getElementById('balancesBody');
+    const entries = Object.values(data);
+    if (entries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No wallets configured</td></tr>';
+      return;
+    }
+    let totalValue = 0, totalPerp = 0, totalSpot = 0;
+    const rows = entries.map(b => {
+      totalValue += b.account_value;
+      totalPerp += (b.perp_equity || 0);
+      totalSpot += (b.spot_balance || 0);
+      const syncAge = b.last_sync ? Math.floor((Date.now()/1000) - b.last_sync) + 's ago' : 'never';
+      return `<tr>
+        <td><strong style="color:${AGENT_COLORS[b.agent_id]||'#888'}">${b.agent_id.toUpperCase()}</strong></td>
+        <td style="font-size:11px;color:var(--text-dim)">${b.address.slice(0,6)}...${b.address.slice(-4)}</td>
+        <td><strong>${fmtUsd(b.account_value)}</strong></td>
+        <td>${fmtUsd(b.perp_equity)}</td>
+        <td>${fmtUsd(b.spot_balance)}</td>
+        <td>${fmtUsd(b.margin_used)}</td>
+        <td style="color:var(--text-dim)">${syncAge}</td>
+      </tr>`;
+    });
+    rows.push(`<tr style="border-top:2px solid var(--border)">
+      <td colspan="2"><strong>Total</strong></td>
+      <td><strong>${fmtUsd(totalValue)}</strong></td>
+      <td>${fmtUsd(totalPerp)}</td>
+      <td>${fmtUsd(totalSpot)}</td>
+      <td colspan="2"></td>
+    </tr>`);
+    tbody.innerHTML = rows.join('');
+  } catch(e) { console.error('balances error', e); }
+}
+
+// ═══ Recent Trades (Overview) ═══
+async function loadRecentTrades() {
+  try {
+    const trades = await api('/api/trades?limit=5');
+    const tbody = document.getElementById('recentTradesBody');
+    if (trades.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No trades yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.map(t => `
+      <tr>
+        <td>${fmtTime(t.exit_time || t.entry_time)}</td>
+        <td>${t.agent_id}</td>
+        <td>${t.symbol}</td>
+        <td class="${sideClass(t.side)}">${t.side}</td>
+        <td class="${pnlClass(t.pnl_usd)}">${fmtUsd(t.pnl_usd)}</td>
+        <td class="${pnlClass(t.pnl_pct)}">${fmtPct(t.pnl_pct)}</td>
+        <td>${t.exit_reason || '--'}</td>
+      </tr>
+    `).join('');
+  } catch(e) { console.error('recent trades error', e); }
+}
+
+// ═══ Full Trades Table ═══
+async function loadTrades() {
+  try {
+    const agent = document.getElementById('filterAgent').value;
+    const symbol = document.getElementById('filterSymbol').value;
+    const limit = document.getElementById('filterLimit').value;
+    let url = `/api/trades?limit=${limit}`;
+    if (agent) url += `&agent_id=${agent}`;
+    if (symbol) url += `&symbol=${symbol}`;
+
+    const trades = await api(url);
+    const tbody = document.getElementById('tradesBody');
+    if (trades.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No trades found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = trades.map(t => `
+      <tr>
+        <td>${fmtTime(t.exit_time || t.entry_time)}</td>
+        <td>${t.agent_id}</td>
+        <td>${t.symbol}</td>
+        <td class="${sideClass(t.side)}">${t.side}</td>
+        <td>${fmt(t.entry_price, 4)}</td>
+        <td>${t.exit_price ? fmt(t.exit_price, 4) : '--'}</td>
+        <td>${t.leverage ? fmt(t.leverage, 1) + 'x' : '--'}</td>
+        <td class="${pnlClass(t.pnl_usd)}">${fmtUsd(t.pnl_usd)}</td>
+        <td class="${pnlClass(t.pnl_pct)}">${fmtPct(t.pnl_pct)}</td>
+        <td>${t.exit_reason || '--'}</td>
+      </tr>
+    `).join('');
+  } catch(e) { console.error('trades error', e); }
+}
+
+// Filters
+['filterAgent', 'filterSymbol', 'filterLimit'].forEach(id => {
+  document.getElementById(id).addEventListener('change', loadTrades);
+});
+
+// ═══ Positions Table ═══
+async function loadPositions() {
+  try {
+    const positions = await api('/api/positions');
+    const tbody = document.getElementById('positionsBody');
+    if (positions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No open positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(p => `
+      <tr>
+        <td>${p.agent_id}</td>
+        <td>${p.symbol}</td>
+        <td class="${sideClass(p.direction)}">${p.direction}</td>
+        <td>${fmt(p.entry_price, 4)}</td>
+        <td>${fmtUsd(p.size_usd)}</td>
+        <td>${fmtPct(p.sl_pct)}</td>
+        <td>${fmtTime(p.entry_time)}</td>
+        <td>${fmtElapsed(p.elapsed_sec)}</td>
+      </tr>
+    `).join('');
+  } catch(e) { console.error('positions error', e); }
+}
+
+// ═══ Agent Cards ═══
+async function loadAgents() {
+  try {
+    const [agents, balances] = await Promise.all([api('/api/agents'), api('/api/balances')]);
+    const grid = document.getElementById('agentGrid');
+    grid.innerHTML = Object.values(agents).map(a => {
+      const bal = balances[a.agent_id];
+      const balRow = bal && bal.account_value > 0
+        ? `<div class="agent-stat"><span class="stat-label">Wallet Balance</span><span><strong>${fmtUsd(bal.account_value)}</strong></span></div>
+           <div class="agent-stat"><span class="stat-label">Margin Used</span><span>${fmtUsd(bal.margin_used)}</span></div>`
+        : '';
+      return `
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <span class="agent-name" style="color:${AGENT_COLORS[a.agent_id] || '#888'}">${a.agent_id.toUpperCase()}</span>
+            <div class="agent-desc">${a.description}</div>
+            ${bal ? `<div class="agent-desc">${bal.address.slice(0,6)}...${bal.address.slice(-4)}</div>` : ''}
+          </div>
+          <div class="value ${a.pnl_usd >= 0 ? 'positive' : 'negative'}" style="font-size:20px">${fmtUsd(a.pnl_usd)}</div>
+        </div>
+        ${balRow}
+        <div class="agent-stat"><span class="stat-label">Win Rate</span><span>${fmt(a.win_rate,1)}%</span></div>
+        <div class="agent-stat"><span class="stat-label">Total Trades</span><span>${a.total_trades}</span></div>
+        <div class="agent-stat"><span class="stat-label">Max Drawdown</span><span>${fmt(a.max_drawdown,2)}%</span></div>
+        <div class="agent-stat"><span class="stat-label">Open Positions</span><span>${a.open_positions}</span></div>
+        <div class="agent-stat"><span class="stat-label">Timeframes</span><span>${a.timeframes.join(', ')}</span></div>
+        <div class="agent-stat"><span class="stat-label">Capital Allocation</span><span>${fmt(a.capital_pct*100,0)}%</span></div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('agents error', e); }
+}
+
+// ═══ Health Status ═══
+async function loadHealth() {
+  try {
+    const h = await api('/api/health');
+    const dot = document.getElementById('healthDot');
+    const text = document.getElementById('healthText');
+    dot.className = 'dot' + (h.status === 'ok' ? '' : h.status === 'degraded' ? ' degraded' : ' offline');
+    text.textContent = h.status.toUpperCase() + ' | ' + (h.uptime_human || '--');
+  } catch(e) {
+    document.getElementById('healthDot').className = 'dot offline';
+    document.getElementById('healthText').textContent = 'OFFLINE';
+  }
+}
+
+// ═══ Populate filter dropdowns ═══
+async function initFilters() {
+  try {
+    const agents = await api('/api/agents');
+    const sel = document.getElementById('filterAgent');
+    Object.keys(agents).forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id.toUpperCase();
+      sel.appendChild(opt);
+    });
+
+    // Get unique symbols from trades
+    const trades = await api('/api/trades?limit=200');
+    const symbols = [...new Set(trades.map(t => t.symbol))].sort();
+    const symSel = document.getElementById('filterSymbol');
+    symbols.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      symSel.appendChild(opt);
+    });
+  } catch(e) { console.error('init filters error', e); }
+}
+
+// ═══ Refresh Logic ═══
+function refreshCurrent() {
+  const tab = activeTab();
+  loadHealth();
+  if (tab === 'overview') { loadSummary(); loadBalances(); loadEquity(); loadRecentTrades(); }
+  else if (tab === 'trades') { loadTrades(); }
+  else if (tab === 'positions') { loadPositions(); }
+  else if (tab === 'agents') { loadAgents(); }
+  document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+}
+
+// ═══ Init ═══
+(async function init() {
+  await initFilters();
+  refreshCurrent();
+  setInterval(refreshCurrent, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

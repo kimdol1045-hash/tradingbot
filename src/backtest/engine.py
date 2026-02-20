@@ -82,6 +82,15 @@ class SimPosition:
         return self.pnl_usd - self.cost_usd
 
 
+@dataclass
+class _ActivePos:
+    """Tracks an open position during backtest replay (deferred PnL)."""
+    close_candle_idx: int   # main loop index where position closes
+    pos: SimPosition
+    margin: float           # locked capital (notional / leverage)
+    risk_usd: float         # notional * sl_pct — risk budget consumed
+
+
 # ═══ Cost Model ═══
 
 def _calculate_costs(signal: Signal, fill_price: float, close_price: float, stage: str) -> float:
@@ -378,6 +387,10 @@ class BacktestEngine:
         equity = capital
         peak_equity = capital
 
+        # Active position tracking (deferred PnL until position closes)
+        active_positions: list[_ActivePos] = []
+        locked_capital = 0.0
+
         # Build TF index maps (timestamp → index) for faster lookup
         tf_indices: dict[str, dict[int, int]] = {}
         for tf, candles in self.candles_by_tf.items():
@@ -434,6 +447,44 @@ class BacktestEngine:
             # Skip warmup period
             if i < self.warmup:
                 continue
+
+            # ── Close expired positions (must run every candle, before scan_every gate) ──
+            newly_closed = [ap for ap in active_positions if i >= ap.close_candle_idx]
+            for ap in newly_closed:
+                active_positions.remove(ap)
+                result.positions.append(ap.pos)
+                locked_capital -= ap.margin
+                net = ap.pos.net_pnl
+                equity += net
+                if net > 0:
+                    state["consecutive_losses"] = 0
+                elif net < 0:
+                    state["consecutive_losses"] = state.get("consecutive_losses", 0) + 1
+                # Update rolling PF
+                if len(result.positions) >= 2:
+                    recent = result.positions[-20:]
+                    gp = sum(p.net_pnl for p in recent if p.net_pnl > 0)
+                    gl = sum(abs(p.net_pnl) for p in recent if p.net_pnl < 0)
+                    state["rolling_pf"] = gp / gl if gl > 0 else 10.0
+
+            # ── Update state from active positions ──
+            if equity > peak_equity:
+                peak_equity = equity
+            locked_capital = max(locked_capital, 0.0)
+            state["open_positions_count"] = len(active_positions)
+            state["open_risk"] = sum(ap.risk_usd for ap in active_positions)
+            # Simple interest: position sizing always based on initial capital
+            # (but can't exceed actual available equity)
+            sizing_base = min(capital, equity)
+            state["capital"] = max(sizing_base - locked_capital, 0)
+            state["symbol_positions"] = {
+                self.symbol: sum(1 for ap in active_positions),
+            }
+            state["coin_exposure_usd"] = {
+                self.symbol: sum(ap.pos.signal.notional_usd for ap in active_positions),
+            }
+            mdd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0
+            state["current_mdd"] = mdd
 
             # Progress logging
             if i % log_interval == 0:
@@ -529,7 +580,6 @@ class BacktestEngine:
             result.signals_generated += 1
 
             # ━━━━ Simulate position ━━━━
-            # Use remaining candles for simulation
             future_5m = primary_candles[i + 1:]
             if not future_5m:
                 continue
@@ -542,30 +592,47 @@ class BacktestEngine:
             )
 
             pos = _simulate_position(pos, future_5m, max_hold)
-            result.positions.append(pos)
 
-            # Update equity state
-            net = pos.net_pnl
-            equity += net
-            if equity > peak_equity:
-                peak_equity = equity
+            # Capital check: enough free capital for margin? (simple interest)
+            margin_needed = signal.notional_usd / signal.leverage if signal.leverage > 0 else signal.notional_usd
+            available = min(capital, equity) - locked_capital
+            if margin_needed > available:
+                # Not enough capital — reject
+                debug_counts["p5_signal"] -= 1
+                debug_counts["p5_no_signal"] += 1
+                result.signals_generated -= 1
+                continue
 
-            mdd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0
-            state["current_mdd"] = mdd
-            state["capital"] = equity
+            # Calculate risk for this position
+            sl_pct = abs(signal.entry_price - signal.stop_loss) / signal.entry_price if signal.entry_price > 0 else 0.02
+            pos_risk = signal.notional_usd * sl_pct
 
-            if net > 0:
-                state["consecutive_losses"] = 0
-            elif net < 0:
-                state["consecutive_losses"] = state.get("consecutive_losses", 0) + 1
+            # Track as active position (defer equity update until close)
+            close_idx = i + pos.candles_held
+            active_positions.append(_ActivePos(
+                close_candle_idx=close_idx,
+                pos=pos,
+                margin=margin_needed,
+                risk_usd=pos_risk,
+            ))
+            locked_capital += margin_needed
 
-            # Update rolling PF
-            closed_trades = result.positions
-            if len(closed_trades) >= 2:
-                recent = closed_trades[-20:]
-                gp = sum(p.net_pnl for p in recent if p.net_pnl > 0)
-                gl = sum(abs(p.net_pnl) for p in recent if p.net_pnl < 0)
-                state["rolling_pf"] = gp / gl if gl > 0 else 10.0
+            # Update state immediately so next signal sees correct limits
+            state["open_positions_count"] = len(active_positions)
+            state["open_risk"] = sum(ap.risk_usd for ap in active_positions)
+            state["capital"] = max(min(capital, equity) - locked_capital, 0)
+            state["symbol_positions"] = {
+                self.symbol: sum(1 for ap in active_positions),
+            }
+            state["coin_exposure_usd"] = {
+                self.symbol: sum(ap.pos.signal.notional_usd for ap in active_positions),
+            }
+
+        # Close any remaining active positions at end of data
+        for ap in active_positions:
+            result.positions.append(ap.pos)
+            equity += ap.pos.net_pnl
+        active_positions.clear()
 
         # Set time range
         if primary_candles:

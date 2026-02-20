@@ -59,13 +59,17 @@ def main() -> int:
         print(f"  {WARN} .env file not found (using environment vars)")
 
     # 3. Required env vars
+    use_openclaw = os.getenv("USE_OPENCLAW", "false").lower() == "true"
+
     required_vars = {
         "HYPERLIQUID_KEY": os.getenv("HYPERLIQUID_KEY", ""),
-        "HYPERLIQUID_SECRET": os.getenv("HYPERLIQUID_SECRET", ""),
         "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
-        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
     }
+    if use_openclaw:
+        required_vars["OPENCLAW_GATEWAY_TOKEN"] = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
+    else:
+        required_vars["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
 
     print("\n── Environment Variables ──")
     for var, val in required_vars.items():
@@ -164,26 +168,91 @@ def main() -> int:
         else:
             print(f"  {WARN} Telegram — skipped (no token)")
 
-        # OpenAI
-        oai_key = os.getenv("OPENAI_API_KEY", "")
-        if oai_key and oai_key != "your_openai_key":
-            try:
-                resp = httpx.get(
-                    "https://api.openai.com/v1/models",
-                    headers={"Authorization": f"Bearer {oai_key}"},
-                    timeout=10,
-                )
-                ok = resp.status_code == 200
-                results.append(check("OpenAI API", ok, "connected" if ok else f"HTTP {resp.status_code}"))
-            except Exception as e:
-                results.append(check("OpenAI API", False, str(e)[:60]))
+        # OpenClaw or OpenAI
+        if use_openclaw:
+            gw_url = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
+            gw_token = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
+            if gw_token:
+                try:
+                    resp = httpx.post(
+                        f"{gw_url}/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {gw_token}", "Content-Type": "application/json"},
+                        json={"model": "openclaw", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                        timeout=15,
+                    )
+                    ok = resp.status_code == 200
+                    results.append(check("OpenClaw Gateway", ok, "connected" if ok else f"HTTP {resp.status_code}"))
+                except Exception as e:
+                    results.append(check("OpenClaw Gateway", False, str(e)[:60]))
+            else:
+                print(f"  {WARN} OpenClaw — skipped (no token)")
         else:
-            print(f"  {WARN} OpenAI — skipped (no key)")
+            oai_key = os.getenv("OPENAI_API_KEY", "")
+            if oai_key and oai_key != "your_openai_key":
+                try:
+                    resp = httpx.get(
+                        "https://api.openai.com/v1/models",
+                        headers={"Authorization": f"Bearer {oai_key}"},
+                        timeout=10,
+                    )
+                    ok = resp.status_code == 200
+                    results.append(check("OpenAI API", ok, "connected" if ok else f"HTTP {resp.status_code}"))
+                except Exception as e:
+                    results.append(check("OpenAI API", False, str(e)[:60]))
+            else:
+                print(f"  {WARN} OpenAI — skipped (no key)")
 
     except ImportError:
         print(f"  {WARN} httpx not installed — skipping API checks")
 
-    # 9. Module imports
+    # 9. Wallet Addresses (balance monitoring)
+    print("\n── Wallet Address Monitoring ──")
+    wallet_addrs = {}
+    for agent_id in ["s1", "s2", "s3", "s4"]:
+        addr = os.getenv(f"WALLET_ADDRESS_{agent_id.upper()}", "")
+        if addr:
+            wallet_addrs[agent_id] = addr
+    if wallet_addrs:
+        print(f"  {PASS} Balance monitoring: {len(wallet_addrs)} addresses configured")
+        for aid, addr in wallet_addrs.items():
+            print(f"    {aid}: {addr[:12]}...{addr[-6:]}")
+    else:
+        print(f"  {WARN} No WALLET_ADDRESS_Sx vars set — balance monitoring disabled")
+
+    # 10. Dashboard dependencies
+    print("\n── Dashboard ──")
+    try:
+        import fastapi
+        results.append(check("FastAPI", True, f"v{fastapi.__version__}"))
+    except ImportError:
+        results.append(check("FastAPI", False, "pip install fastapi"))
+    try:
+        import uvicorn
+        results.append(check("Uvicorn", True, f"v{uvicorn.__version__}"))
+    except ImportError:
+        results.append(check("Uvicorn", False, "pip install uvicorn[standard]"))
+
+    dashboard_port = int(os.getenv("DASHBOARD_PORT", "8501"))
+    print(f"  Dashboard port: {dashboard_port}")
+
+    # 11. symbols.json
+    print("\n── Symbol Pool ──")
+    symbols_path = PROJECT_ROOT / "symbols.json"
+    if symbols_path.exists():
+        try:
+            import json
+            with open(symbols_path) as f:
+                sdata = json.load(f)
+            pool = sdata.get("symbol_pool", {})
+            total_coins = sum(len(v) for v in pool.values())
+            results.append(check("symbols.json", total_coins > 0,
+                                 f"{total_coins} coins across {len(pool)} tiers"))
+        except Exception as e:
+            results.append(check("symbols.json", False, f"parse error: {str(e)[:40]}"))
+    else:
+        print(f"  {WARN} symbols.json not found — using default symbol pool")
+
+    # 12. Module imports
     print("\n── Module Imports ──")
     critical_modules = [
         "src.utils.config",
@@ -195,9 +264,11 @@ def main() -> int:
         "src.pipeline.phase5_execute",
         "src.pipeline.runner",
         "src.pipeline.position_manager",
+        "src.pipeline.equity_tracker",
         "src.collector.collector",
         "src.openclaw.evolver",
         "src.notify.telegram",
+        "src.dashboard.app",
     ]
     import importlib
     for mod in critical_modules:

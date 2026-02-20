@@ -15,13 +15,17 @@ import sys
 from src.ai.market_advisor import MarketAdvisor
 from src.collector.collector import DataCollector
 from src.exchange.executor import OrderExecutor
+from src.exchange.hyperliquid import fetch_wallet_balance, get_info_client
 from src.exchange.reconciliation import reconcile_on_startup
-from src.notify.telegram import notify_error, notify_system
+from src.notify.telegram import command_handler, notify_daily_report, notify_error, notify_system
 from src.openclaw.evolver import Evolver
 from src.pipeline.equity_tracker import EquityTracker
 from src.pipeline.position_manager import PositionManager
 from src.pipeline.runner import PipelineRunner
-from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, LOG_LEVEL, get_wallet_configs
+from src.pipeline.screener_scheduler import ScreenerScheduler
+from src.utils import config as cfg
+from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, LOG_LEVEL, get_wallet_addresses, get_wallet_configs, reload_symbol_pool
+from src.dashboard.app import create_app
 from src.utils.db import init_db
 from src.utils.health import register_components, start_health_server
 
@@ -35,7 +39,6 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 # ── Configuration ──
-TOTAL_CAPITAL = float(os.getenv("TOTAL_CAPITAL", "10000"))
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 ADVISOR_ENABLED = os.getenv("ADVISOR_ENABLED", "true").lower() == "true"
 ADVISOR_INTERVAL_HOURS = float(os.getenv("ADVISOR_INTERVAL_HOURS", "1"))
@@ -46,8 +49,10 @@ def _setup_global_exception_handler():
     def handle_exception(loop, context):
         msg = context.get("exception", context["message"])
         logger.error("Unhandled async exception: %s", msg, exc_info=context.get("exception"))
-        asyncio.ensure_future(
-            notify_error(f"Unhandled exception: {msg}")
+        from src.utils.async_helpers import safe_fire_and_forget
+        safe_fire_and_forget(
+            notify_error(f"Unhandled exception: {msg}"),
+            name="notify_error",
         )
 
     def handle_sync_exception(exc_type, exc_value, exc_tb):
@@ -58,6 +63,30 @@ def _setup_global_exception_handler():
 
     asyncio.get_event_loop().set_exception_handler(handle_exception)
     sys.excepthook = handle_sync_exception
+
+
+async def daily_report_loop(equity_tracker: EquityTracker, hour_kst: int = 9):
+    """Send daily performance report at a fixed KST hour."""
+    from datetime import datetime, timedelta, timezone
+
+    kst = timezone(timedelta(hours=9))
+    await asyncio.sleep(30)  # Wait for initial data
+
+    while True:
+        now = datetime.now(kst)
+        target = now.replace(hour=hour_kst, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_sec = (target - now).total_seconds()
+        logger.info("Daily report scheduled at %s KST (%.0fs)", target.strftime("%H:%M"), wait_sec)
+        await asyncio.sleep(wait_sec)
+
+        try:
+            report = equity_tracker.get_daily_report()
+            await notify_daily_report(report)
+            logger.info("Daily report sent: PnL=$%.2f trades=%d", report.get("total_pnl", 0), report.get("total_trades", 0))
+        except Exception:
+            logger.warning("Daily report failed", exc_info=True)
 
 
 async def main() -> None:
@@ -83,7 +112,7 @@ async def main() -> None:
         logger.warning("No wallet keys configured — live trading unavailable")
 
     executor = OrderExecutor(db=db, dry_run=DRY_RUN, wallet_configs=wallet_configs)
-    position_mgr = PositionManager(executor=executor, dry_run=DRY_RUN)
+    position_mgr = PositionManager(executor=executor, dry_run=DRY_RUN, equity_tracker=equity_tracker)
     advisor = MarketAdvisor(
         candle_cache=collector.cache,
         interval_hours=ADVISOR_INTERVAL_HOURS,
@@ -93,15 +122,61 @@ async def main() -> None:
         position_manager=position_mgr,
         db=db,
         advisor=advisor,
+        equity_tracker=equity_tracker,
     )
     evolver = Evolver(equity_tracker=equity_tracker, position_manager=position_mgr)
+    screener = ScreenerScheduler(collector=collector)
 
-    # Allocate capital per agent
-    for agent_id, profile in AGENT_PROFILES.items():
-        capital = TOTAL_CAPITAL * profile.capital_pct
-        pipeline.set_capital(agent_id, capital)
-        equity_tracker.initialize_agent(agent_id, capital)
-        logger.info("Agent %s: $%.0f (%.0f%%)", agent_id, capital, profile.capital_pct * 100)
+    # Load symbol pool from symbols.json if available
+    reload_symbol_pool()
+
+    # Allocate capital per agent from real wallet balances
+    wallet_addresses = get_wallet_addresses()
+    if wallet_addresses:
+        try:
+            info = get_info_client()
+        except Exception:
+            logger.error("Failed to connect to Hyperliquid API for balance fetch", exc_info=True)
+            info = None
+        for agent_id in AGENT_PROFILES:
+            address = wallet_addresses.get(agent_id)
+            if address and info:
+                try:
+                    balance = fetch_wallet_balance(info, address)
+                except Exception:
+                    logger.warning("Failed to fetch balance for %s, defaulting to $0", agent_id, exc_info=True)
+                    balance = 0.0
+                pipeline.set_capital(agent_id, balance)
+                equity_tracker.initialize_agent(agent_id, balance)
+                logger.info("Agent %s: $%.2f (wallet %s...)", agent_id, balance, address[:10])
+            else:
+                pipeline.set_capital(agent_id, 0)
+                equity_tracker.initialize_agent(agent_id, 0)
+                if not address:
+                    logger.warning("Agent %s: no wallet address configured", agent_id)
+    elif wallet_configs:
+        try:
+            info = get_info_client()
+        except Exception:
+            logger.error("Failed to connect to Hyperliquid API for balance fetch", exc_info=True)
+            info = None
+        for agent_id, wc in wallet_configs.items():
+            if info:
+                try:
+                    balance = fetch_wallet_balance(info, wc.wallet_address)
+                except Exception:
+                    logger.warning("Failed to fetch balance for %s, defaulting to $0", agent_id, exc_info=True)
+                    balance = 0.0
+            else:
+                balance = 0.0
+            pipeline.set_capital(agent_id, balance)
+            equity_tracker.initialize_agent(agent_id, balance)
+            logger.info("Agent %s: $%.2f (wallet %s...)", agent_id, balance, wc.wallet_address[:10])
+    else:
+        logger.warning("No wallet addresses configured — all agents start with $0")
+        for agent_id in AGENT_PROFILES:
+            pipeline.set_capital(agent_id, 0)
+            equity_tracker.initialize_agent(agent_id, 0)
 
     # Wire callbacks
     collector.on_candle_close_callback = pipeline.on_candle_close
@@ -114,7 +189,21 @@ async def main() -> None:
         equity_tracker=equity_tracker,
         evolver=evolver,
         advisor=advisor,
+        screener=screener,
     )
+
+    # Set up wallet addresses for balance monitoring
+    if wallet_addresses:
+        equity_tracker.set_wallet_addresses(wallet_addresses)
+        logger.info("Balance monitoring: %d wallets configured", len(wallet_addresses))
+
+    # Register Telegram command handler components
+    command_handler.set_components({
+        "equity_tracker": equity_tracker,
+        "position_manager": position_mgr,
+        "pipeline": pipeline,
+        "collector": collector,
+    })
 
     # ── Signal handlers ──
     loop = asyncio.get_event_loop()
@@ -122,7 +211,7 @@ async def main() -> None:
         loop.add_signal_handler(
             sig,
             lambda: asyncio.create_task(
-                shutdown(collector, position_mgr, evolver, advisor, db),
+                shutdown(collector, position_mgr, evolver, advisor, screener, db),
             ),
         )
 
@@ -143,15 +232,33 @@ async def main() -> None:
         await collector.backfill(symbols=ALL_SYMBOLS)
         logger.info("Backfill complete, starting live trading")
 
-        await notify_system(
-            f"System started (dry_run={DRY_RUN})\n"
-            f"Capital: ${TOTAL_CAPITAL:,.0f}\n"
-            f"Agents: {', '.join(AGENT_PROFILES.keys())}\n"
-            f"Symbols: {', '.join(ALL_SYMBOLS)}\n"
-            f"Advisor: {'ON' if advisor else 'OFF'}"
-            f"{f' ({ADVISOR_INTERVAL_HOURS}h interval)' if advisor else ''}\n"
-            f"Reconciliation: {recon['matched']} matched, {recon['stale']} stale, {recon['orphaned']} orphaned"
+        total_capital = sum(a.current_equity for a in equity_tracker.agents.values())
+        mode = "LIVE (메인넷)" if not DRY_RUN else "DRY RUN (모의매매)"
+        agent_lines = "\n".join(
+            f"  {aid}: ${a.current_equity:,.2f}"
+            for aid, a in equity_tracker.agents.items()
         )
+        tier_summary = " / ".join(
+            f"{tier}: {', '.join(syms)}" for tier, syms in cfg.SYMBOL_POOL.items()
+        )
+        await notify_system(
+            f"시스템 시작 [{mode}]\n"
+            f"총 자본: ${total_capital:,.2f}\n"
+            f"{agent_lines}\n"
+            f"매매 심볼 (스크리너 선별): {tier_summary}\n"
+            f"어드바이저: {'ON' if advisor else 'OFF'}"
+            f"{f' ({ADVISOR_INTERVAL_HOURS}h)' if advisor else ''}"
+        )
+
+        # Dashboard server (uvicorn embedded)
+        import uvicorn
+
+        dashboard_app = create_app()
+        dashboard_port = int(os.getenv("DASHBOARD_PORT", "8501"))
+        uvi_config = uvicorn.Config(
+            dashboard_app, host="0.0.0.0", port=dashboard_port, log_level="warning",
+        )
+        dashboard_server = uvicorn.Server(uvi_config)
 
         # Run all components concurrently
         coros = [
@@ -159,9 +266,18 @@ async def main() -> None:
             position_mgr.monitor_loop(interval=5.0),
             evolver.run_loop(interval_hours=float(os.getenv("EVOLVER_INTERVAL_HOURS", "4"))),
             start_health_server(port=int(os.getenv("HEALTH_PORT", "8080"))),
+            screener.run_loop(),
+            dashboard_server.serve(),
         ]
         if advisor:
             coros.append(advisor.run_loop())
+        if wallet_addresses:
+            balance_interval = float(os.getenv("BALANCE_SYNC_INTERVAL", "60"))
+            coros.append(equity_tracker.balance_sync_loop(interval_sec=balance_interval))
+        daily_hour_kst = int(os.getenv("DAILY_REPORT_HOUR_KST", "9"))
+        coros.append(daily_report_loop(equity_tracker, hour_kst=daily_hour_kst))
+        coros.append(command_handler.poll_loop())
+        logger.info("Dashboard listening on http://0.0.0.0:%d", dashboard_port)
         await asyncio.gather(*coros)
     except KeyboardInterrupt:
         pass
@@ -172,7 +288,10 @@ async def main() -> None:
         except Exception:
             pass
     finally:
+        equity_tracker.stop_sync()
+        command_handler.stop()
         evolver.stop()
+        screener.stop()
         if advisor:
             advisor.stop()
         position_mgr.stop()
@@ -186,10 +305,12 @@ async def shutdown(
     position_mgr: PositionManager,
     evolver: Evolver,
     advisor: MarketAdvisor | None,
+    screener: ScreenerScheduler,
     db,
 ) -> None:
     logger.info("Shutdown signal received")
     evolver.stop()
+    screener.stop()
     if advisor:
         advisor.stop()
     position_mgr.stop()

@@ -22,6 +22,7 @@ import aiosqlite
 from src.exchange.hyperliquid import (
     get_exchange_client,
     get_info_client,
+    get_max_leverage,
     get_user_state,
     place_entry_with_sl_tp,
     place_market_order,
@@ -203,10 +204,18 @@ class OrderExecutor:
         if size <= 0:
             return OrderResult(success=False, error="INVALID_SIZE")
 
-        # Step 1: Update leverage
+        # Step 1: Update leverage (clamped to exchange max)
         try:
+            max_lev = get_max_leverage(signal.symbol, self._info)
+            target_lev = min(int(signal.leverage), max_lev)
+            if target_lev != int(signal.leverage):
+                logger.info(
+                    "Leverage clamped %s: %dx → %dx (exchange max=%dx)",
+                    signal.symbol, int(signal.leverage), target_lev, max_lev,
+                )
+                signal.leverage = float(target_lev)
             await asyncio.to_thread(
-                update_leverage, exchange, signal.symbol, int(signal.leverage),
+                update_leverage, exchange, signal.symbol, target_lev,
             )
         except Exception:
             logger.exception("Failed to update leverage for %s", signal.symbol)
@@ -258,6 +267,8 @@ class OrderExecutor:
                 logger.warning(
                     "Order attempt %d/%d failed: %s", attempt, MAX_RETRIES, error_msg,
                 )
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(RETRY_DELAY_S * attempt)
 
             except Exception as e:
                 logger.exception("Order attempt %d/%d exception", attempt, MAX_RETRIES)

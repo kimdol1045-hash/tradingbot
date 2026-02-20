@@ -5,17 +5,21 @@ S1 → S2 → S3 → S4 sequential execution per symbol.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
 
+from src.exchange.hyperliquid import fetch_max_leverages
+from src.notify.telegram import notify_safety, notify_signal
 from src.pipeline.models import Signal
+from src.utils.async_helpers import safe_fire_and_forget
 from src.pipeline.phase1_safety import phase1_safety
 from src.pipeline.phase2_read import phase2_read
 from src.pipeline.phase3_scan import phase3_scan
 from src.pipeline.phase4_gate import phase4_gate
 from src.pipeline.phase5_execute import phase5_execute
-from src.utils.config import AGENT_PROFILES, get_agent_symbols
+from src.utils.config import AGENT_PROFILES, MDD_POLICIES, get_agent_symbols
 from src.utils.market_stats import MarketStats, compute_stats
 from src.utils.params import load_params
 
@@ -25,18 +29,20 @@ logger = logging.getLogger(__name__)
 class PipelineRunner:
     """Runs the 5-phase pipeline for all agents."""
 
-    def __init__(self, candle_cache, position_manager=None, db=None, advisor=None):
+    def __init__(self, candle_cache, position_manager=None, db=None, advisor=None, equity_tracker=None):
         """
         Args:
             candle_cache: CandleCache with get(symbol, tf) method
             position_manager: PositionManager for signal execution
             db: aiosqlite connection for pipeline logging (optional)
             advisor: MarketAdvisor for AI-based leverage/SL adjustment (optional)
+            equity_tracker: EquityTracker for rolling PF/MDD/streak updates (optional)
         """
         self.cache = candle_cache
         self.pm = position_manager
         self.db = db
         self.advisor = advisor
+        self.equity_tracker = equity_tracker
 
         # Per-agent state
         self.agent_states: dict[str, dict] = {}
@@ -57,9 +63,16 @@ class PipelineRunner:
                 "avg_atr_7d": 0.0,
             }
 
+        # Emergency halt tracking: {agent_id: halt_until_ts_ms}
+        self._halt_until: dict[str, int] = {}
+
         # Pre-computed stats per symbol
         self._stats_cache: dict[str, MarketStats] = {}
         self._stats_ts: dict[str, int] = {}
+
+        # Exchange max leverage cache (shared across agents)
+        self._max_leverage_map: dict[str, int] = {}
+        self._max_lev_ts: float = 0.0
 
     def set_capital(self, agent_id: str, capital: float):
         """Set agent capital allocation."""
@@ -73,6 +86,17 @@ class PipelineRunner:
         """Update current MDD for agent."""
         if agent_id in self.agent_states:
             self.agent_states[agent_id]["current_mdd"] = mdd
+
+    def _refresh_max_leverages(self):
+        """Refresh exchange max leverage map (every 1 hour)."""
+        now = time.time()
+        if now - self._max_lev_ts > 3600 or not self._max_leverage_map:
+            try:
+                self._max_leverage_map = fetch_max_leverages()
+                self._max_lev_ts = now
+                logger.debug("Max leverage map refreshed: %d assets", len(self._max_leverage_map))
+            except Exception:
+                logger.debug("Max leverage refresh failed", exc_info=True)
 
     def _get_stats(self, symbol: str) -> MarketStats:
         """Get or recompute market stats (refresh every 30min)."""
@@ -122,6 +146,18 @@ class PipelineRunner:
         if not profile:
             return None
 
+        # Check emergency halt
+        halt_ts = self._halt_until.get(agent_id, 0)
+        if halt_ts > 0:
+            now_ms = int(time.time() * 1000)
+            if now_ms < halt_ts:
+                remaining_h = (halt_ts - now_ms) / 3_600_000
+                logger.debug("[%s/%s] Halted — %.1fh remaining", agent_id, symbol, remaining_h)
+                return None
+            # Halt expired, resume
+            del self._halt_until[agent_id]
+            logger.info("[%s] Emergency halt expired, resuming trading", agent_id)
+
         state = self.agent_states[agent_id]
         params = load_params(agent_id)
         stats = self._get_stats(symbol)
@@ -145,11 +181,28 @@ class PipelineRunner:
             logger.exception("[%s/%s] Phase 1 SAFETY error — defaulting to blocked", agent_id, symbol)
             return None
 
+        prev_stage = state.get("current_stage", "NORMAL")
         self._update_stage_state(agent_id, safety.stage)
+
+        # Notify on safety stage change (escalation only)
+        if safety.stage != prev_stage and safety.stage != "NORMAL":
+            safe_fire_and_forget(
+                notify_safety(safety.stage, safety.severity, safety.mdd_mode, safety.reason),
+                name="notify_safety",
+            )
 
         if safety.action == "CLOSE_ALL_AND_HALT":
             logger.warning("[%s/%s] EMERGENCY: %s", agent_id, symbol, safety.reason)
-            return None  # Position manager handles close-all separately
+            # Close all positions and set halt timer
+            if self.pm and agent_id not in self._halt_until:
+                safe_fire_and_forget(
+                    self.pm.close_all_positions(agent_id, reason="MDD_EMERGENCY"),
+                    name="emergency_close_all",
+                )
+                halt_hours = MDD_POLICIES.get("emergency", {}).get("halt_hours", 24)
+                self._halt_until[agent_id] = int(time.time() * 1000) + int(halt_hours * 3600 * 1000)
+                logger.warning("[%s] HALTED for %d hours (until %d)", agent_id, halt_hours, self._halt_until[agent_id])
+            return None
 
         if safety.blocked:
             logger.debug("[%s/%s] Blocked: %s", agent_id, symbol, safety.reason)
@@ -210,6 +263,8 @@ class PipelineRunner:
                 agent_id, symbol, signal.direction, signal.leverage,
                 signal.entry_price, signal.stop_loss, elapsed,
             )
+            # Send Telegram signal notification
+            safe_fire_and_forget(notify_signal(signal), name="notify_signal")
         else:
             logger.debug("[%s/%s] No signal from Phase 5 (%.0fms)", agent_id, symbol, elapsed)
 
@@ -272,13 +327,10 @@ class PipelineRunner:
                 "tp_count": len(signal.take_profits),
             }
 
-        import asyncio
-        try:
-            asyncio.get_event_loop().create_task(
-                self._write_log(agent_id, symbol, snapshot, signal is not None)
-            )
-        except RuntimeError:
-            pass  # No event loop running (e.g., in sync tests)
+        safe_fire_and_forget(
+            self._write_log(agent_id, symbol, snapshot, signal is not None),
+            name="pipeline_log",
+        )
 
     async def _write_log(
         self, agent_id: str, symbol: str, snapshot: dict, signal_generated: bool,
@@ -307,6 +359,9 @@ class PipelineRunner:
         signals: list[Signal] = []
         agent_order = ["s1", "s2", "s3", "s4"]
 
+        # Refresh exchange max leverage cache
+        self._refresh_max_leverages()
+
         # Fetch AI advisor multipliers once per symbol (shared across agents)
         ai_lev_mult = 1.0
         ai_sl_mult = 1.0
@@ -325,9 +380,46 @@ class PipelineRunner:
             if symbol not in allowed_symbols:
                 continue
 
-            # Inject AI advisor multipliers into agent state
+            # Sync equity tracker state → agent_states (rolling_pf, consecutive_losses, MDD)
+            if self.equity_tracker:
+                et_update = self.equity_tracker.get_agent_state_update(agent_id)
+                if et_update:
+                    self.agent_states[agent_id]["rolling_pf"] = et_update.get("rolling_pf", 2.0)
+                    self.agent_states[agent_id]["consecutive_losses"] = et_update.get("consecutive_losses", 0)
+                    self.agent_states[agent_id]["current_mdd"] = et_update.get("current_mdd", 0.0)
+                    # Update capital from real wallet balance if available
+                    if et_update.get("capital", 0) > 0:
+                        self.agent_states[agent_id]["capital"] = et_update["capital"]
+
+            # Inject open position count, risk, and exposure into agent state
+            if self.pm:
+                open_pos = self.pm.get_open_positions(agent_id)
+                all_open = self.pm.get_open_positions()  # all agents
+                self.agent_states[agent_id]["open_positions_count"] = len(open_pos)
+                self.agent_states[agent_id]["open_risk"] = self.pm.get_open_risk(agent_id)
+                self.agent_states[agent_id]["portfolio_positions_count"] = len(all_open)
+
+                # Per-symbol position counts and exposure
+                sym_positions: dict[str, int] = {}
+                coin_exposure: dict[str, float] = {}
+                for pos in open_pos:
+                    s = pos.signal.symbol
+                    sym_positions[s] = sym_positions.get(s, 0) + 1
+                    coin_exposure[s] = coin_exposure.get(s, 0.0) + pos.signal.notional_usd
+                self.agent_states[agent_id]["symbol_positions"] = sym_positions
+                self.agent_states[agent_id]["coin_exposure_usd"] = coin_exposure
+
+                # Total capital across all agents
+                total_capital = sum(
+                    self.agent_states[aid].get("capital", 0)
+                    for aid in self.agent_states
+                )
+                self.agent_states[agent_id]["total_capital"] = total_capital
+
+            # Inject AI advisor multipliers and max leverage map into agent state
             self.agent_states[agent_id]["ai_leverage_mult"] = ai_lev_mult
             self.agent_states[agent_id]["ai_sl_mult"] = ai_sl_mult
+            self.agent_states[agent_id]["max_leverage_map"] = self._max_leverage_map
 
             signal = self.run_agent(agent_id, symbol)
             if signal:

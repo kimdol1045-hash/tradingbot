@@ -20,8 +20,17 @@ from src.utils.params import load_params, save_params
 
 logger = logging.getLogger(__name__)
 
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-MODEL = os.getenv("EVOLVER_MODEL", "gpt-4o")
+# OpenClaw proxy (local gateway) or direct OpenAI API
+OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
+OPENCLAW_GATEWAY_TOKEN = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
+USE_OPENCLAW = os.getenv("USE_OPENCLAW", "false").lower() == "true"
+
+OPENAI_API_URL = (
+    f"{OPENCLAW_GATEWAY_URL}/v1/chat/completions"
+    if USE_OPENCLAW
+    else "https://api.openai.com/v1/chat/completions"
+)
+MODEL = os.getenv("EVOLVER_MODEL", "openclaw" if USE_OPENCLAW else "gpt-4o")
 CYCLE_INTERVAL_HOURS = float(os.getenv("EVOLVER_INTERVAL_HOURS", "4"))
 
 # ═══ Adjustable Parameter Ranges ═══
@@ -132,13 +141,20 @@ def _build_user_prompt(metrics: dict, current_params: dict) -> str:
 # ═══ GPT-4o API Call ═══
 
 async def _call_gpt(system_prompt: str, user_prompt: str) -> dict | None:
-    """Call GPT-4o and parse JSON response."""
-    if not OPENAI_API_KEY:
-        logger.warning("OpenAI API key not configured")
-        return None
+    """Call LLM via OpenClaw proxy or direct OpenAI API."""
+    if USE_OPENCLAW:
+        if not OPENCLAW_GATEWAY_TOKEN:
+            logger.warning("OpenClaw gateway token not configured")
+            return None
+        auth_token = OPENCLAW_GATEWAY_TOKEN
+    else:
+        if not OPENAI_API_KEY:
+            logger.warning("OpenAI API key not configured")
+            return None
+        auth_token = OPENAI_API_KEY
 
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {auth_token}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -215,10 +231,13 @@ def _validate_and_apply(params: dict, adjustments: list[dict]) -> tuple[dict, li
 
         current = _get_nested(params, path)
         if current is not None:
-            # Max ±20% change per cycle
-            max_change = abs(current) * 0.20
+            # Max ±20% change per cycle (with minimum absolute change for near-zero values)
+            min_abs_change = (hi - lo) * 0.05  # At least 5% of the param range
+            max_change = max(abs(current) * 0.20, min_abs_change)
             if abs(new_val - current) > max_change:
                 new_val = current + max_change * (1 if new_val > current else -1)
+            # Re-clamp after change limiting
+            new_val = max(lo, min(new_val, hi))
 
         _set_nested(params, path, round(new_val, 4))
         applied.append(f"{path}: {current} → {new_val:.4f} ({reason})")
@@ -230,6 +249,12 @@ def _validate_and_apply(params: dict, adjustments: list[dict]) -> tuple[dict, li
         if w_sum > 0 and abs(w_sum - 1.0) > 0.001:
             for k in weights:
                 weights[k] = round(weights[k] / w_sum, 4)
+            # Re-clamp weights to their bounds after normalization
+            for k in weights:
+                bound_key = f"dna.weights.{k}"
+                if bound_key in PARAM_BOUNDS:
+                    blo, bhi = PARAM_BOUNDS[bound_key]
+                    weights[k] = max(blo, min(weights[k], bhi))
             applied.append(f"DNA weights re-normalized (sum was {w_sum:.4f})")
 
     return params, applied
@@ -259,6 +284,9 @@ class Evolver:
             return None
 
         params = load_params(agent_id)
+        if not params:
+            logger.warning("[Evolver] %s: no params file, skipping", agent_id)
+            return None
         user_prompt = _build_user_prompt(metrics, params)
 
         logger.info("[Evolver] %s: calling GPT-4o...", agent_id)

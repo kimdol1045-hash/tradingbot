@@ -122,8 +122,9 @@ def calculate_metrics(
 
     for pos in positions:
         net = pos.net_pnl
+        prev_equity = equity
         equity += net
-        returns.append(net / initial_capital)  # normalize to initial capital
+        returns.append(net / prev_equity if prev_equity > 0 else 0)  # normalize to current equity
 
         m.equity_curve.append((pos.close_ts, equity))
 
