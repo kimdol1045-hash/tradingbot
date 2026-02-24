@@ -35,11 +35,6 @@
     }
   },
 
-  "confirmation": {
-    "min_closes_beyond": 1,
-    "breakout_close_beyond_atr": 0.12
-  },
-
   "gate": {
     "base_pass_scores": {
       "STRONG_UPTREND": 40,

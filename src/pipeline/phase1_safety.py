@@ -204,7 +204,9 @@ def _detect_oi_shock(
 def _detect_liquidation_cascade(
     candles: list[dict], stats: MarketStats, params: dict,
 ) -> dict:
-    """Liquidation volume exceeds 95th percentile."""
+    """Liquidation volume exceeds 95th percentile.
+    NOTE: Currently inactive — liquidation_vol is always 0 (no trades WS subscription).
+    Will activate when trades WS feed is added."""
     liq_vol = candles[-1].get("liquidation_vol") if candles else None
     if not liq_vol or liq_vol <= 0:
         return {"triggered": False, "ratio": 0.0, "score": 0.0}

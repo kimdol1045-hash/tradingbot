@@ -448,6 +448,7 @@ class DataCollector:
                     candles = fetch_candles(info, symbol, tf, start_ms, end_ms)
                     if candles:
                         await insert_candles_batch(self._db, candles)
+                        await self._db.commit()
                         for c in candles:
                             self.cache.append(symbol, tf, c)
                         logger.info(

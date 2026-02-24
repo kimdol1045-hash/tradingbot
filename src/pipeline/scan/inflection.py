@@ -188,7 +188,7 @@ def detect_t5_poc_magnet(
 
 
 def detect_t6_divergence(candles: list[dict], atr_val: float) -> dict | None:
-    """T6: Price-RSI divergence."""
+    """T6: Price-RSI divergence using swing point comparison."""
     if len(candles) < 20:
         return None
 
@@ -196,29 +196,49 @@ def detect_t6_divergence(candles: list[dict], atr_val: float) -> dict | None:
     closes = arr["close"]
     rsi_vals = rsi(closes, period=14)
     valid_rsi = rsi_vals[~np.isnan(rsi_vals)]
-    if len(valid_rsi) < 5:
+    if len(valid_rsi) < 10:
         return None
 
-    # Look at last 10 candles for divergence
-    recent_closes = closes[-10:]
-    recent_rsi = rsi_vals[-10:]
-    if np.any(np.isnan(recent_rsi)):
+    # Use last 20 candles for swing detection
+    window = 20
+    rc = closes[-window:]
+    rr = rsi_vals[-window:]
+    if np.any(np.isnan(rr)):
         return None
+
+    # Find swing lows and highs (local extrema with 2-bar lookback/ahead)
+    swing_lows: list[int] = []
+    swing_highs: list[int] = []
+    for i in range(2, len(rc) - 2):
+        if rc[i] <= min(rc[i - 2], rc[i - 1]) and rc[i] <= min(rc[i + 1], rc[i + 2]):
+            swing_lows.append(i)
+        if rc[i] >= max(rc[i - 2], rc[i - 1]) and rc[i] >= max(rc[i + 1], rc[i + 2]):
+            swing_highs.append(i)
 
     # Bullish divergence: price lower low, RSI higher low
-    if recent_closes[-1] < recent_closes[0] and recent_rsi[-1] > recent_rsi[0]:
-        strength = abs(recent_rsi[-1] - recent_rsi[0])
-        return {
-            "type": "T6_DIVERGENCE", "direction": "LONG",
-            "score": min(strength * 1.5, 20),
-        }
+    if len(swing_lows) >= 2:
+        i1, i2 = swing_lows[-2], swing_lows[-1]
+        if rc[i2] < rc[i1] and rr[i2] > rr[i1]:
+            rsi_strength = abs(rr[i2] - rr[i1])
+            price_drop = abs(rc[i1] - rc[i2]) / atr_val if atr_val > 0 else 0
+            score = rsi_strength * 1.0 + price_drop * 3
+            return {
+                "type": "T6_DIVERGENCE", "direction": "LONG",
+                "score": min(score, 20),
+            }
+
     # Bearish divergence: price higher high, RSI lower high
-    elif recent_closes[-1] > recent_closes[0] and recent_rsi[-1] < recent_rsi[0]:
-        strength = abs(recent_rsi[-1] - recent_rsi[0])
-        return {
-            "type": "T6_DIVERGENCE", "direction": "SHORT",
-            "score": min(strength * 1.5, 20),
-        }
+    if len(swing_highs) >= 2:
+        i1, i2 = swing_highs[-2], swing_highs[-1]
+        if rc[i2] > rc[i1] and rr[i2] < rr[i1]:
+            rsi_strength = abs(rr[i1] - rr[i2])
+            price_rise = abs(rc[i2] - rc[i1]) / atr_val if atr_val > 0 else 0
+            score = rsi_strength * 1.0 + price_rise * 3
+            return {
+                "type": "T6_DIVERGENCE", "direction": "SHORT",
+                "score": min(score, 20),
+            }
+
     return None
 
 

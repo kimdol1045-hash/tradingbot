@@ -131,12 +131,6 @@ class PipelineRunner:
             state["current_stage"] = stage
             state["stage_entered_ts"] = int(time.time() * 1000)
 
-    def _update_regime_state(self, agent_id: str, regime: str, grace_counter: int):
-        """Update regime tracking."""
-        state = self.agent_states[agent_id]
-        state["current_regime"] = regime
-        state["grace_counter"] = grace_counter
-
     def run_agent(self, agent_id: str, symbol: str) -> Signal | None:
         """
         Run full 5-Phase pipeline for one agent × one symbol.
@@ -223,9 +217,9 @@ class PipelineRunner:
         # ━━━━ Phase 3: SCAN ━━━━
         try:
             stats_dict = {
-                "funding_p95": stats.funding_p97,
-                "funding_p5": stats.funding_p3,
-                "oi_change_p90": stats.oi_change_p97,
+                "funding_p95": max(stats.funding_p97, 0.0001),
+                "funding_p5": min(stats.funding_p3, -0.0001),
+                "oi_change_p90": max(stats.oi_change_p97, 3.0),
             }
             scan = phase3_scan(candles_by_tf, regime, safety, agent_config, params, stats_dict)
         except Exception:
@@ -239,8 +233,8 @@ class PipelineRunner:
         # ━━━━ Phase 4: GATE ━━━━
         try:
             gate_stats = {
-                "spread_p90": stats.spread_p95,
-                "imbalance_p90": stats.imbalance_p95,
+                "spread_p90": max(stats.spread_p95, 0.01),
+                "imbalance_p90": max(stats.imbalance_p95, 0.3),
             }
             gate = phase4_gate(primary_candles, scan, regime, safety, state, params, gate_stats)
         except Exception:

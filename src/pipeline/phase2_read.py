@@ -253,17 +253,11 @@ def _calculate_dna(
     # Weighted composite
     score = sum(components[k] * norm_weights[k] for k in components)
 
-    # Confidence: based on how extreme the score is (distance from 50)
-    # Use wider range when no history (raw fallback is more spread)
-    divisor = 30 if has_history else 20
-    confidence = min(abs(score - 50) / divisor, 1.0)
-
     return {
         "score": score,
         "components": components,
         "raw": raw,
         "weights_used": norm_weights,
-        "confidence": confidence,
     }
 
 

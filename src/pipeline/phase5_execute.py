@@ -310,8 +310,9 @@ def calculate_position_size(
     """
     margin_pct = EXPOSURE_LIMITS.get("margin_pct_per_position", 0.25)
 
-    # 고정 25% 마진 — MDD/gate 조정은 레버리지에서 처리
-    margin_usd = capital * margin_pct
+    # 25% 마진 × gate size_mult (MDD/exposure/PF/score 조정 반영)
+    size_mult = gate_result.size_mult if gate_result and gate_result.size_mult else 1.0
+    margin_usd = capital * margin_pct * size_mult
     notional_usd = margin_usd * leverage
     order_qty = notional_usd / entry_price if entry_price > 0 else 0
 

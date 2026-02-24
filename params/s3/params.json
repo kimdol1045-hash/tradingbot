@@ -26,11 +26,6 @@
     "chart_timeframe": "1h"
   },
 
-  "confirmation": {
-    "min_closes_beyond": 2,
-    "breakout_close_beyond_atr": 0.10
-  },
-
   "gate": {
     "base_pass_scores": {
       "STRONG_UPTREND": 40,

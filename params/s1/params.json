@@ -29,10 +29,6 @@
       "VOLATILE": 0
     }
   },
-  "confirmation": {
-    "min_closes_beyond": 1,
-    "breakout_close_beyond_atr": 0.15
-  },
   "gate": {
     "skip_inflection_bonus": true,
     "base_pass_scores": {

@@ -318,8 +318,9 @@ def _check_exposure(
     capital = agent_state.get("capital", 10000)
     open_risk = agent_state.get("open_risk", 0.0)
 
-    # Estimate new position risk
-    new_risk = scan_result.entry_price * estimated_sl if scan_result.entry_price > 0 else 0
+    # Estimate new position risk: capital × margin_pct × SL%
+    margin_pct = exposure.get("margin_pct_per_position", 0.25)
+    new_risk = capital * margin_pct * estimated_sl
     risk_pct = (open_risk + new_risk) / capital if capital > 0 else 0
 
     if risk_pct >= hard_block_pct:
