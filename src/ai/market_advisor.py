@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 # ═══ Config ═══
 
+_USE_OPENCLAW = os.getenv("USE_OPENCLAW", "false").lower() == "true"
+_OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
+_OPENCLAW_GATEWAY_TOKEN = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 MODEL = os.getenv("ADVISOR_MODEL", os.getenv("EVOLVER_MODEL", "gpt-4o"))
 
@@ -80,13 +83,22 @@ Principles:
 # ═══ LLM Call (reuses Evolver pattern) ═══
 
 async def _call_llm(system_prompt: str, user_prompt: str) -> dict | None:
-    """Call OpenAI API and parse JSON response."""
-    if not OPENAI_API_KEY:
-        logger.warning("[MarketAdvisor] OpenAI API key not configured")
-        return None
+    """Call LLM (OpenClaw or OpenAI) and parse JSON response."""
+    if _USE_OPENCLAW:
+        if not _OPENCLAW_GATEWAY_TOKEN:
+            logger.warning("[MarketAdvisor] OpenClaw gateway token not configured")
+            return None
+        api_url = f"{_OPENCLAW_GATEWAY_URL}/v1/chat/completions"
+        auth_token = _OPENCLAW_GATEWAY_TOKEN
+    else:
+        if not OPENAI_API_KEY:
+            logger.warning("[MarketAdvisor] OpenAI API key not configured")
+            return None
+        api_url = OPENAI_API_URL
+        auth_token = OPENAI_API_KEY
 
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {auth_token}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -97,14 +109,15 @@ async def _call_llm(system_prompt: str, user_prompt: str) -> dict | None:
         ],
         "temperature": 0.3,
         "max_tokens": 1500,
-        "response_format": {"type": "json_object"},
     }
+    if not _USE_OPENCLAW:
+        payload["response_format"] = {"type": "json_object"}
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(OPENAI_API_URL, headers=headers, json=payload)
+            resp = await client.post(api_url, headers=headers, json=payload)
             if resp.status_code != 200:
-                logger.error("[MarketAdvisor] OpenAI API error: %d %s", resp.status_code, resp.text[:200])
+                logger.error("[MarketAdvisor] LLM API error: %d %s", resp.status_code, resp.text[:200])
                 return None
 
             data = resp.json()

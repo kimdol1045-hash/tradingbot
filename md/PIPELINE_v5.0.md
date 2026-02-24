@@ -2135,6 +2135,12 @@ def phase5_execute(scan_result, gate_result, regime_result, safety_result,
     # MDD 기반 타이트닝 (v5.0 핵심)
     sl_tighten = params['stop_loss']['mdd_tighten'][mdd_mode]
     sl_distance = abs(scan_result.entry_price - raw_sl) * sl_tighten
+
+    # AI Market Advisor SL 배수 (1시간마다 LLM 분석)
+    # 고변동 → 1.3~2.0 (SL 확대, 위킹 방어), 클린 추세 → 0.5~0.8 (SL 축소, RR 개선)
+    ai_sl_mult = agent_state.get('ai_sl_mult', 1.0)  # 0.5 ~ 2.0 하드 클램프
+    sl_distance *= ai_sl_mult
+
     stop_loss = (scan_result.entry_price - sl_distance if direction == 'LONG'
                  else scan_result.entry_price + sl_distance)
 
@@ -2289,11 +2295,11 @@ AGENT_EXIT_PROFILES = {
 }
 ```
 
-#### 레버리지 6단계 (Step 7의 7단계에서 정비)
+#### 레버리지 7단계 (Step 7의 7단계에서 정비 + AI Advisor 추가)
 
 ```python
 def calculate_leverage(regime, gate, safety, scan, agent_state, params):
-    """Step 7의 7단계를 6단계로 정비"""
+    """7단계 레버리지 계산 (룰 6단계 + AI Advisor 1단계)"""
 
     # Step 1: 체제 × 확신도 기본값
     lev = params['table'][regime.regime][confidence_tier(regime.confidence)]
@@ -2301,7 +2307,6 @@ def calculate_leverage(regime, gate, safety, scan, agent_state, params):
     # Step 2: 변곡점 점수 조정
     if scan.score >= 90:   lev *= 1.25
     elif scan.score >= 80: lev *= 1.10
-    elif scan.score < 70:  lev *= 0.85
 
     # Step 3: Stage 강제 제한
     # STAGE_1/2는 Phase 1에서 이미 차단되므로 여기까지 도달 안 함
@@ -2312,19 +2317,29 @@ def calculate_leverage(regime, gate, safety, scan, agent_state, params):
     if atr_ratio >= 2.0:   lev *= 0.5
     elif atr_ratio >= 1.5: lev *= 0.7
 
-    # Step 5: MDD 배수 적용 (v5.0 핵심)
-    lev *= gate.leverage_mult
-
-    # Step 6: 연속 손실 감쇠 (Step 7 계승)
+    # Step 5+6: MDD + 연속 손실 — 강한 쪽만 적용 (not both)
+    mdd_decay = gate.leverage_mult
     streak = agent_state.consecutive_losses
-    decay = [1.0, 0.85, 0.65, 0.45, 0.25]
-    lev *= decay[min(streak, 4)]
+    loss_decay = [1.0, 0.9, 0.8, 0.7, 0.6][min(streak, 4)]
+    lev *= min(mdd_decay, loss_decay)
 
-    # 범위 제한
-    lev = max(1, min(lev, params['max_leverage']))
+    # Step 7: AI Market Advisor 배수 (1시간마다 LLM이 시장 분석 후 설정)
+    # survival/emergency MDD 모드에서는 적용 안 함
+    if gate.mdd_mode not in ('survival', 'emergency'):
+        lev *= agent_state.get('ai_leverage_mult', 1.0)  # 0.3 ~ 2.0 하드 클램프
+
+    # 범위 제한 (min 5x, survival 시 3x)
+    min_lev = 5.0 if gate.mdd_mode != 'survival' else 3.0
+    lev = max(min_lev, min(lev, params['max_leverage']))
 
     return round(lev, 1)
 ```
+
+> **AI Market Advisor (Step 7)**:
+> - 1시간마다 전 심볼의 시장 스냅샷(가격변동, ATR비율, 거래량, 펀딩, OI, 스프레드)을 LLM에 전달
+> - LLM이 심볼별 `ai_leverage_mult`(0.3~2.0) 리턴 → 룰 기반 레버리지에 곱함
+> - TTL 2시간: 미갱신 시 자동 1.0 복귀, LLM 실패 시 기존값 유지
+> - Evolver(4시간, params.json 영구 수정)와 달리 런타임 메모리 배수만 — 재시작 시 1.0 초기화
 
 **에이전트별 레버리지 프로파일:**
 
@@ -2863,6 +2878,40 @@ def ai_execute_review(agent_id):
 │  - 3회 연속 악화 시 자동 롤백                                     │
 │  - MDD/레버리지 상한은 절대 불변                                   │
 └──────────────────────────────────────────────────────────────────┘
+```
+
+### AI 2-Layer 구조: MarketAdvisor (실시간) + Evolver (학습)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                   AI Layer 비교                                    │
+│                                                                  │
+│  ┌─────────────────────────────┐ ┌─────────────────────────────┐ │
+│  │   Market Advisor (Layer A)  │ │   Evolver (Layer B)         │ │
+│  │                             │ │                             │ │
+│  │  주기: 1시간                │ │  주기: 4시간                │ │
+│  │  입력: 실시간 시장 데이터    │ │  입력: 과거 매매 기록        │ │
+│  │  (ATR, 거래량, 펀딩, OI)    │ │  (승률, PF, 패턴별 성적)    │ │
+│  │                             │ │                             │ │
+│  │  출력: 런타임 배수 (메모리)  │ │  출력: params.json (영구)   │ │
+│  │  ai_leverage_mult: 0.3~2.0 │ │  DNA 가중치: 0.05~0.50     │ │
+│  │  ai_sl_mult: 0.5~2.0       │ │  Gate 점수: 45~95          │ │
+│  │                             │ │  SL 배수: 1.0~3.0          │ │
+│  │                             │ │                             │ │
+│  │  질문: "지금 시장 어때?"    │ │  질문: "매매 성적 어때?"    │ │
+│  │  영속성: 없음 (재시작→1.0)  │ │  영속성: 파일 저장           │ │
+│  │  TTL: 2시간 미갱신→1.0     │ │  거래 5건 미만→스킵         │ │
+│  └──────────────┬──────────────┘ └──────────────┬──────────────┘ │
+│                 │                                │                │
+│                 ▼                                ▼                │
+│  Phase 5 레버리지 Step 7          Phase 1~5 전체 파라미터        │
+│  Phase 5 SL 계산                  (다음 사이클부터 즉시 반영)    │
+└──────────────────────────────────────────────────────────────────┘
+
+적용 순서 (Phase 5 레버리지):
+  Step 1~6: 룰 기반 (레짐, 변곡점, Stage, ATR, MDD, 연패)
+  Step 7: × ai_leverage_mult (MarketAdvisor)
+  ※ Evolver는 Step 1의 기본값 테이블 자체를 변경
 ```
 
 ### AI 호출 구조 (피드백 #6: 에이전트당 1콜로 통합)

@@ -55,8 +55,10 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
   │   │       └── inflection.py      # T1~T8 변곡점 감지
   │   ├── notify/
   │   │   └── telegram.py            # 슈퍼그룹 Topics 알림 + 양방향 AI 대화 + 도구 시스템
+  │   ├── ai/
+  │   │   └── market_advisor.py      # AI 실시간 시장 분석 → 레버리지/SL 배수 (1시간 주기)
   │   ├── openclaw/
-  │   │   └── evolver.py             # GPT-4o 파라미터 진화 (4시간 주기)
+  │   │   └── evolver.py             # AI 매매 성과 분석 → 파라미터 자동 진화 (4시간 주기)
   │   └── utils/
   │       ├── config.py              # 환경변수, AgentProfile, MDD정책
   │       ├── db.py                  # SQLite WAL + 스키마
@@ -155,8 +157,8 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 - [x] `phase4_gate.py`: 8가지 기술지표 스코어 (100점 만점), MDD/PF 동적 조정
 - [x] exposure 체크: 30% hard block, 20% reduce
 - [x] PF Anti-Stall: PF < 1.0 시 탐색 모드 (size_mult=0.3, threshold-10)
-- [x] `phase5_execute.py`: 6단계 레버리지 계산 (레짐×신뢰도 → 변곡점 → Stage → ATR → MDD → 연패 감쇠)
-- [x] ATR 기반 SL + S/R 고려 + MDD 조임 + max_loss 강제
+- [x] `phase5_execute.py`: 7단계 레버리지 계산 (레짐×신뢰도 → 변곡점 → Stage → ATR → MDD → 연패 감쇠 → AI Advisor 배수)
+- [x] ATR 기반 SL + S/R 고려 + MDD 조임 + AI Advisor SL 배수 + max_loss 강제
 - [x] RR 기반 TP (TP1=RR1.5/55%, TP2=RR2.5/45%) + 패턴 목표가 반영
 - [x] Fixed-Loss 포지션 사이징: notional = R / sl_pct
 - [x] `runner.py`: PipelineRunner — 5m 캔들 마감 → S1→S2→S3→S4 순차 실행
@@ -189,10 +191,12 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 ### ✅ Sprint 6: OpenClaw Evolver + 과거 데이터
 
 **구현 완료 항목:**
-- [x] `openclaw/evolver.py`: GPT-4o 파라미터 최적화 (4시간 주기)
-- [x] PARAM_BOUNDS: 14개 조정 가능 파라미터 (DNA 가중치, Gate 기준, Exit 설정)
-- [x] 안전장치: ±20% max change/cycle, bounds 강제, DNA 합=1.0 re-normalize
-- [x] 메트릭 수집 → 프롬프트 생성 → GPT-4o 호출 → 검증 → params 저장
+- [x] `openclaw/evolver.py`: LLM 기반 매매 성과 분석 → 파라미터 자동 진화 (4시간 주기)
+  - 입력: 에이전트별 매매 기록 (승률, PF, MDD, 패턴별/레짐별 성적, SL비율, 보유시간) + 현재 params.json
+  - 출력: params.json 직접 수정 (영구 저장) — DNA 가중치(6개), Gate 통과점수(6개), SL/트레일링 ATR 배수
+  - 조정 범위: DNA 0.05~0.50, Gate 45~95, SL ATR 1.0~3.0, 트레일링 0.5~2.5
+  - 안전장치: ±20% max change/cycle, bounds 강제, DNA 합=1.0 re-normalize, PF>2.0&&승률>55%→조정안함, 거래 5건 미만→스킵
+  - OpenClaw 게이트웨이 또는 OpenAI API 경유
 - [x] `collector/historical.py`: Hyperliquid 과거 데이터 벌크 다운로드 (chunked)
 - [x] Binance Futures 소스도 지원 (Hyperliquid 런칭 이전 데이터용)
 - [x] CLI: `python -m src.collector.historical --years 3 --source hyperliquid`
@@ -294,7 +298,12 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 ### ✅ Post-Sprint: 실전 운영 기능 (2/19~2/23)
 
 **구현 완료 항목:**
-- [x] **AI Market Advisor** (`src/ai/market_advisor.py`): GPT-4o 기반 심볼별 레버리지/SL 동적 조정 (1시간 주기, TTL 2시간)
+- [x] **AI Market Advisor** (`src/ai/market_advisor.py`): LLM 기반 실시간 시장 적응 (1시간 주기)
+  - 입력: 전 심볼 5m 캔들 200개 → 가격변동(1h/4h), ATR비율, 거래량비율, 펀딩, OI변화, 스프레드
+  - 출력: 심볼별 `ai_leverage_mult`(0.3~2.0), `ai_sl_mult`(0.5~2.0) — 메모리 저장 (런타임 배수)
+  - 적용: Phase 5 레버리지 Step 7, SL 계산에 곱함
+  - 안전장치: 하드 클램프, TTL 2시간 (미갱신→1.0 복귀), LLM 실패→기존값 유지, survival/emergency 모드 비적용
+  - OpenClaw 게이트웨이 또는 OpenAI API 경유
 - [x] **멀티 지갑** (`src/exchange/hyperliquid.py`): 에이전트별 독립 Hyperliquid 지갑 지원, 지갑별 reconciliation/balance sync
 - [x] **동적 리스크 모드**: MDD 모드별 레버리지/사이즈 배율 자동 적용
 - [x] **코인 스크리너** (`scripts/coin_screener.py`): 전체 코인 거래량 필터 + 백테스트 기반 티어 분류 (Tier 1~3)
@@ -369,9 +378,11 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 - 목표: 성과 기반 동적 배분 — 잘하는 에이전트에 자본 추가 할당
 - 조건: 최소 20거래 이상, PF 기반 가중치
 
-### 7. Evolver 변경 알림
+### 7. Evolver 변경 알림 + AI 레이어 모니터링
 - Evolver가 파라미터 변경 시 Telegram으로 변경 내역 알림
 - 변경 이력 DB 저장 (언제 무엇을 얼마나 바꿨는지)
+- MarketAdvisor 배수 이력 기록 + 대시보드 시각화
+- 두 AI 레이어의 상호작용 분석 (Advisor 배수 vs 실제 수익 상관관계)
 
 ---
 
