@@ -24,6 +24,17 @@
     "chart_pattern_enabled": false
   },
 
+  "scan": {
+    "regime_min_scores": {
+      "STRONG_UPTREND": 10,
+      "WEAK_UPTREND": 10,
+      "SIDEWAYS": 15,
+      "WEAK_DOWNTREND": 10,
+      "STRONG_DOWNTREND": 10,
+      "VOLATILE": 20
+    }
+  },
+
   "confirmation": {
     "min_closes_beyond": 1,
     "breakout_close_beyond_atr": 0.12
@@ -52,14 +63,14 @@
 
   "leverage": {
     "table": {
-      "STRONG_UPTREND": {"high": 7, "medium": 4, "low": 2},
-      "WEAK_UPTREND": {"high": 4, "medium": 3, "low": 2},
-      "SIDEWAYS": {"high": 3, "medium": 2, "low": 1},
-      "WEAK_DOWNTREND": {"high": 4, "medium": 3, "low": 2},
-      "STRONG_DOWNTREND": {"high": 7, "medium": 4, "low": 2},
-      "VOLATILE": {"high": 1, "medium": 1, "low": 1}
+      "STRONG_UPTREND": {"high": 15, "medium": 12, "low": 8},
+      "WEAK_UPTREND": {"high": 12, "medium": 9, "low": 7},
+      "SIDEWAYS": {"high": 10, "medium": 7, "low": 5},
+      "WEAK_DOWNTREND": {"high": 12, "medium": 9, "low": 7},
+      "STRONG_DOWNTREND": {"high": 15, "medium": 12, "low": 8},
+      "VOLATILE": {"high": 8, "medium": 6, "low": 5}
     },
-    "max_leverage": 7,
+    "max_leverage": 15,
     "confidence_thresholds": {"high": 0.80, "medium": 0.60}
   },
 
@@ -69,7 +80,8 @@
     "tp2_rr": [2.0, 3.0],
     "split_ratios": [55, 45],
     "max_hold_candles": 96,
-    "max_loss_pct": 0.025,
+    "sl_atr_mult": 2.2,
+    "max_loss_pct": 0.05,
     "risk_per_trade": 0.015,
     "risk_mode": "dynamic",
     "fixed_risk_usd": 30.0

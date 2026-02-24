@@ -330,23 +330,62 @@ def _find_best_agents(agents: dict[str, dict], threshold_pf: float = 1.0) -> lis
     return good
 
 
+def _classify_best_tier(agents: dict[str, dict]) -> tuple[str, str | None]:
+    """Classify coin by checking ALL agents, return (best_tier, best_agent_for_tier).
+
+    The composite-score best_agent may have low WR, causing misclassification.
+    Instead, find the highest tier achievable by any agent, then pick the best
+    composite-score agent within that tier.
+    """
+    tier_rank = {"tier_1": 0, "tier_2": 1, "tier_3": 2, "excluded": 3}
+
+    best_tier = "excluded"
+    candidates: list[tuple[str, str, float]] = []  # (aid, tier, composite)
+
+    for aid, m in agents.items():
+        if m.get("trades", 0) < 5:
+            continue
+        tier = _classify_tier(m)
+        score = _compute_composite_score(m)
+        candidates.append((aid, tier, score))
+
+        if tier_rank.get(tier, 9) < tier_rank.get(best_tier, 9):
+            best_tier = tier
+
+    if not candidates:
+        return "excluded", None
+
+    # Among agents that achieved the best tier, pick highest composite score
+    tier_agents = [(aid, sc) for aid, t, sc in candidates if t == best_tier]
+    if not tier_agents:
+        # Fallback: pick overall best composite
+        tier_agents = [(aid, sc) for aid, t, sc in candidates]
+
+    tier_agents.sort(key=lambda x: -x[1])
+    return best_tier, tier_agents[0][0]
+
+
 def stage3_classify(backtest_results: dict[str, dict]) -> list[dict]:
     """Classify coins into tiers based on backtest results. Returns sorted list."""
     classified = []
 
     for symbol, data in backtest_results.items():
-        best_m = data["best_metrics"]
-        tier = _classify_tier(best_m)
+        tier, tier_best_agent = _classify_best_tier(data["agents"])
         best_agents = _find_best_agents(data["agents"])
+
+        # Use the tier-determining agent as best_agent (not composite-only best)
+        effective_agent = tier_best_agent or data["best_agent"]
+        effective_metrics = data["agents"].get(effective_agent, data["best_metrics"])
+        effective_score = _compute_composite_score(effective_metrics)
 
         classified.append({
             "symbol": symbol,
             "tier": tier,
-            "score": data["best_score"],
-            "best_agent": data["best_agent"],
+            "score": round(effective_score, 1),
+            "best_agent": effective_agent,
             "best_agents": best_agents,
             "days": data["days"],
-            "best_metrics": best_m,
+            "best_metrics": effective_metrics,
             "all_agents": data["agents"],
         })
 

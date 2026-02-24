@@ -1,9 +1,9 @@
 """
 OpenClaw Evolver — Layer 2 AI parameter optimizer.
-Uses GPT-4o via OpenAI API to analyze trading performance and
+Uses GPT-5.3 via OpenAI API to analyze trading performance and
 adjust agent parameters every 4-hour cycle.
 
-Cycle: collect metrics → build prompt → call GPT-4o → parse adjustments → write params
+Cycle: collect metrics → build prompt → call GPT-5.3 → parse adjustments → write params
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ OPENAI_API_URL = (
     if USE_OPENCLAW
     else "https://api.openai.com/v1/chat/completions"
 )
-MODEL = os.getenv("EVOLVER_MODEL", "openclaw" if USE_OPENCLAW else "gpt-4o")
+MODEL = os.getenv("EVOLVER_MODEL", "openclaw" if USE_OPENCLAW else "gpt-5.3")
 CYCLE_INTERVAL_HOURS = float(os.getenv("EVOLVER_INTERVAL_HOURS", "4"))
 
 # ═══ Adjustable Parameter Ranges ═══
@@ -138,7 +138,7 @@ def _build_user_prompt(metrics: dict, current_params: dict) -> str:
     }, indent=2)
 
 
-# ═══ GPT-4o API Call ═══
+# ═══ GPT-5.3 API Call ═══
 
 async def _call_gpt(system_prompt: str, user_prompt: str) -> dict | None:
     """Call LLM via OpenClaw proxy or direct OpenAI API."""
@@ -263,7 +263,7 @@ def _validate_and_apply(params: dict, adjustments: list[dict]) -> tuple[dict, li
 # ═══ Main Evolver ═══
 
 class Evolver:
-    """Layer 2 AI: GPT-4o powered parameter evolution."""
+    """Layer 2 AI: GPT-5.3 powered parameter evolution."""
 
     def __init__(self, equity_tracker=None, position_manager=None):
         self.equity_tracker = equity_tracker
@@ -289,7 +289,7 @@ class Evolver:
             return None
         user_prompt = _build_user_prompt(metrics, params)
 
-        logger.info("[Evolver] %s: calling GPT-4o...", agent_id)
+        logger.info("[Evolver] %s: calling GPT-5.3...", agent_id)
         result = await _call_gpt(SYSTEM_PROMPT, user_prompt)
 
         if not result or "adjustments" not in result:

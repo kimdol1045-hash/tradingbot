@@ -79,7 +79,9 @@ CREATE TABLE IF NOT EXISTS positions (
     entry_time      INTEGER NOT NULL,
     signal_id       TEXT UNIQUE,
     exchange_order_id TEXT,              -- Hyperliquid order ID for reconciliation
-    status          TEXT NOT NULL DEFAULT 'OPEN'  -- 'OPEN','CLOSED'
+    status          TEXT NOT NULL DEFAULT 'OPEN',  -- 'OPEN','CLOSED'
+    tp_hits         INTEGER NOT NULL DEFAULT 0,
+    remaining_qty   REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS pipeline_logs (

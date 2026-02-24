@@ -203,9 +203,14 @@ class EquityTracker:
             state = info.user_state(address)
             margin = state.get("marginSummary", {})
             perp_equity = float(margin.get("accountValue", 0))
-            unrealized_pnl = float(margin.get("totalNtlPos", 0))
             margin_used = float(margin.get("totalMarginUsed", 0))
             withdrawable = float(margin.get("totalRawUsd", 0))
+
+            # Sum per-position unrealized PnL
+            unrealized_pnl = 0.0
+            for pos in state.get("assetPositions", []):
+                p = pos.get("position", {})
+                unrealized_pnl += float(p.get("unrealizedPnl", 0))
 
             # Spot account
             spot_balance = 0.0
@@ -218,7 +223,12 @@ class EquityTracker:
             except Exception:
                 logger.debug("[%s] Spot balance fetch failed, skipping", agent_id)
 
-            total_value = perp_equity + spot_balance
+            # Unified accounts: spot includes held margin, so don't double count
+            # Use spot as total when available (perp margin comes from spot)
+            if spot_balance > 0 and perp_equity > 0:
+                total_value = spot_balance  # spot_total includes held perp margin
+            else:
+                total_value = perp_equity + spot_balance
 
             wb = self.wallet_balances.get(agent_id)
             if wb:
@@ -281,8 +291,8 @@ class EquityTracker:
         logger.info("Balance sync started (interval=%ds, wallets=%d)",
                      int(interval_sec), len(self._wallet_addresses))
 
-        # Initial sync after short delay
-        await asyncio.sleep(5)
+        # Initial sync after backfill completes (avoid API rate limit overlap)
+        await asyncio.sleep(180)
 
         while self._sync_running:
             try:
@@ -315,41 +325,225 @@ class EquityTracker:
     def get_daily_report(self) -> dict:
         """Generate daily report data for all agents."""
         total_equity = 0.0
+        total_initial = 0.0
         total_pnl = 0.0
         total_wins = 0
         total_losses = 0
         gross_profit = 0.0
         gross_loss = 0.0
+        best_trade = 0.0
+        worst_trade = 0.0
 
         for agent in self.agents.values():
             total_equity += agent.current_equity
+            total_initial += agent.initial_capital
             total_pnl += (agent.current_equity - agent.initial_capital)
             total_wins += agent.wins
             total_losses += agent.losses
             gross_profit += sum(agent.recent_profits)
             gross_loss += sum(agent.recent_losses)
+            if agent.recent_profits:
+                best_trade = max(best_trade, max(agent.recent_profits))
+            if agent.recent_losses:
+                worst_trade = min(worst_trade, -max(agent.recent_losses))
 
         total_trades = total_wins + total_losses
         win_rate = total_wins / total_trades if total_trades > 0 else 0
         pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+        roi = (total_pnl / total_initial * 100) if total_initial > 0 else 0
+
+        # Wallet balance info (margin usage)
+        total_margin_used = 0.0
+        total_unrealized = 0.0
+        for wb in self.wallet_balances.values():
+            total_margin_used += wb.margin_used
+            total_unrealized += wb.unrealized_pnl
+
+        # TP hit statistics from DB
+        tp_stats = self._get_tp_stats()
+
+        # Deep trade analysis for parameter tuning
+        deep_analysis = self._get_deep_analysis()
 
         return {
             "equity": round(total_equity, 2),
+            "initial_capital": round(total_initial, 2),
             "total_pnl": round(total_pnl, 2),
+            "roi_pct": round(roi, 2),
             "total_trades": total_trades,
             "wins": total_wins,
             "losses": total_losses,
             "win_rate": win_rate,
             "profit_factor": round(min(pf, 99.99), 2),
             "mdd": round(self.get_portfolio_mdd(), 4),
+            "best_trade": round(best_trade, 2),
+            "worst_trade": round(worst_trade, 2),
+            "margin_used": round(total_margin_used, 2),
+            "unrealized_pnl": round(total_unrealized, 2),
+            "tp_stats": tp_stats,
+            "deep_analysis": deep_analysis,
             "agents": {
                 aid: {
+                    "initial": round(a.initial_capital, 2),
                     "equity": round(a.current_equity, 2),
+                    "pnl": round(a.current_equity - a.initial_capital, 2),
+                    "roi": round((a.current_equity - a.initial_capital) / a.initial_capital * 100, 2) if a.initial_capital > 0 else 0,
                     "mdd": round(a.current_mdd, 4),
                     "trades": a.total_trades,
-                    "pf": round(a.rolling_pf, 2),
+                    "wins": a.wins,
+                    "losses": a.losses,
+                    "pf": round(min(a.rolling_pf, 99.99), 2),
                     "streak": a.consecutive_losses,
                 }
                 for aid, a in self.agents.items()
             },
         }
+
+    def _get_tp_stats(self) -> dict:
+        """Get TP hit statistics from DB."""
+        try:
+            import sqlite3
+            from src.utils.config import DB_PATH
+            conn = sqlite3.connect(str(DB_PATH))
+            cursor = conn.execute("""
+                SELECT
+                    count(*) as total,
+                    sum(CASE WHEN p.tp_hits >= 1 THEN 1 ELSE 0 END) as tp1,
+                    sum(CASE WHEN p.tp_hits >= 2 THEN 1 ELSE 0 END) as tp2,
+                    sum(CASE WHEN p.tp_hits >= 3 THEN 1 ELSE 0 END) as tp3
+                FROM positions p
+                LEFT JOIN trades t ON p.signal_id = t.signal_id
+                WHERE t.exit_reason IS NULL
+                   OR t.exit_reason NOT IN ('RECONCILE_STALE', 'DUPLICATE_CLEANUP')
+            """)
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                total = row[0] or 1
+                return {
+                    "total": row[0],
+                    "tp1": row[1] or 0,
+                    "tp2": row[2] or 0,
+                    "tp3": row[3] or 0,
+                    "tp1_pct": round((row[1] or 0) / total * 100),
+                    "tp2_pct": round((row[2] or 0) / total * 100),
+                    "tp3_pct": round((row[3] or 0) / total * 100),
+                }
+        except Exception:
+            logger.debug("Failed to get TP stats", exc_info=True)
+        return {"total": 0, "tp1": 0, "tp2": 0, "tp3": 0, "tp1_pct": 0, "tp2_pct": 0, "tp3_pct": 0}
+
+    def _get_deep_analysis(self) -> dict:
+        """Collect deep trade analysis data for parameter tuning insights."""
+        _EXCLUDE = "('RECONCILE_STALE', 'DUPLICATE_CLEANUP')"
+        try:
+            import sqlite3
+            from src.utils.config import DB_PATH
+            conn = sqlite3.connect(str(DB_PATH))
+
+            # 1. Exit reason breakdown
+            cursor = conn.execute(f"""
+                SELECT exit_reason, count(*) as cnt
+                FROM trades
+                WHERE exit_time IS NOT NULL AND exit_reason NOT IN {_EXCLUDE}
+                GROUP BY exit_reason ORDER BY cnt DESC
+            """)
+            exit_reasons = {r[0]: r[1] for r in cursor.fetchall()}
+
+            # 2. Per-pattern: exit reason distribution + avg scores
+            cursor = conn.execute(f"""
+                SELECT inflection_type,
+                       count(*) as total,
+                       sum(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+                       round(avg(CASE WHEN pnl_usd > 0 THEN validation_score END), 1) as avg_gate_win,
+                       round(avg(CASE WHEN pnl_usd <= 0 THEN validation_score END), 1) as avg_gate_loss,
+                       sum(CASE WHEN exit_reason = 'SL_HIT' THEN 1 ELSE 0 END) as sl_hits,
+                       round(sum(pnl_usd), 2) as total_pnl
+                FROM trades
+                WHERE exit_time IS NOT NULL AND exit_reason NOT IN {_EXCLUDE}
+                  AND inflection_type IS NOT NULL AND inflection_type != ''
+                GROUP BY inflection_type ORDER BY total DESC
+            """)
+            patterns = []
+            for row in cursor.fetchall():
+                itype, total, wins, avg_gw, avg_gl, sl_hits, pnl = row
+                wr = round(wins / total * 100) if total > 0 else 0
+                sl_rate = round(sl_hits / total * 100) if total > 0 else 0
+                patterns.append({
+                    "type": itype, "total": total, "wr": wr, "pnl": pnl or 0,
+                    "sl_rate": sl_rate, "avg_gate_win": avg_gw, "avg_gate_loss": avg_gl,
+                })
+
+            # 3. Regime × direction combo
+            cursor = conn.execute(f"""
+                SELECT regime, side,
+                       count(*) as total,
+                       sum(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins,
+                       round(sum(pnl_usd), 2) as total_pnl
+                FROM trades
+                WHERE exit_time IS NOT NULL AND exit_reason NOT IN {_EXCLUDE}
+                  AND regime IS NOT NULL AND regime != ''
+                GROUP BY regime, side ORDER BY total DESC
+            """)
+            regime_dir = []
+            for row in cursor.fetchall():
+                regime, side, total, wins, pnl = row
+                wr = round(wins / total * 100) if total > 0 else 0
+                regime_dir.append({"regime": regime, "side": side, "total": total, "wr": wr, "pnl": pnl or 0})
+
+            # 4. Gate score bins → win rate
+            cursor = conn.execute(f"""
+                SELECT
+                    CASE
+                        WHEN validation_score < 40 THEN '<40'
+                        WHEN validation_score < 55 THEN '40-55'
+                        WHEN validation_score < 70 THEN '55-70'
+                        ELSE '70+'
+                    END as bin,
+                    count(*) as total,
+                    sum(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) as wins
+                FROM trades
+                WHERE exit_time IS NOT NULL AND exit_reason NOT IN {_EXCLUDE}
+                GROUP BY bin ORDER BY bin
+            """)
+            gate_bins = []
+            for row in cursor.fetchall():
+                b, total, wins = row
+                wr = round(wins / total * 100) if total > 0 else 0
+                gate_bins.append({"bin": b, "total": total, "wr": wr})
+
+            # 5. SL distance: wins vs losses
+            cursor = conn.execute(f"""
+                SELECT
+                    round(avg(CASE WHEN pnl_usd > 0 THEN sl_pct END) * 100, 2) as avg_sl_win,
+                    round(avg(CASE WHEN pnl_usd <= 0 THEN sl_pct END) * 100, 2) as avg_sl_loss
+                FROM trades
+                WHERE exit_time IS NOT NULL AND exit_reason NOT IN {_EXCLUDE}
+            """)
+            row = cursor.fetchone()
+            sl_analysis = {"avg_sl_win": row[0] or 0, "avg_sl_loss": row[1] or 0}
+
+            # 6. Hold time: wins vs losses (minutes)
+            cursor = conn.execute(f"""
+                SELECT
+                    round(avg(CASE WHEN pnl_usd > 0 THEN (exit_time - entry_time) / 60000.0 END), 1) as avg_min_win,
+                    round(avg(CASE WHEN pnl_usd <= 0 THEN (exit_time - entry_time) / 60000.0 END), 1) as avg_min_loss
+                FROM trades
+                WHERE exit_time IS NOT NULL AND exit_reason NOT IN {_EXCLUDE}
+                  AND entry_time > 0 AND exit_time > entry_time
+            """)
+            row = cursor.fetchone()
+            hold_time = {"avg_min_win": row[0] or 0, "avg_min_loss": row[1] or 0}
+
+            conn.close()
+            return {
+                "exit_reasons": exit_reasons,
+                "patterns": patterns,
+                "regime_dir": regime_dir,
+                "gate_bins": gate_bins,
+                "sl_analysis": sl_analysis,
+                "hold_time": hold_time,
+            }
+        except Exception:
+            logger.debug("Failed to get deep analysis", exc_info=True)
+        return {}

@@ -55,14 +55,14 @@
 
   "leverage": {
     "table": {
-      "STRONG_UPTREND": {"high": 6, "medium": 4, "low": 2},
-      "WEAK_UPTREND": {"high": 4, "medium": 3, "low": 2},
-      "SIDEWAYS": {"high": 2, "medium": 1, "low": 1},
-      "WEAK_DOWNTREND": {"high": 4, "medium": 3, "low": 2},
-      "STRONG_DOWNTREND": {"high": 6, "medium": 4, "low": 2},
-      "VOLATILE": {"high": 1, "medium": 1, "low": 1}
+      "STRONG_UPTREND": {"high": 15, "medium": 12, "low": 8},
+      "WEAK_UPTREND": {"high": 12, "medium": 9, "low": 7},
+      "SIDEWAYS": {"high": 10, "medium": 7, "low": 5},
+      "WEAK_DOWNTREND": {"high": 12, "medium": 9, "low": 7},
+      "STRONG_DOWNTREND": {"high": 15, "medium": 12, "low": 8},
+      "VOLATILE": {"high": 8, "medium": 6, "low": 5}
     },
-    "max_leverage": 6,
+    "max_leverage": 15,
     "confidence_thresholds": {"high": 0.85, "medium": 0.65}
   },
 
@@ -73,7 +73,8 @@
     "tp3_rr": [4.0, 6.0],
     "split_ratios": [30, 35, 35],
     "max_hold_candles": 1008,
-    "max_loss_pct": 0.035,
+    "sl_atr_mult": 3.0,
+    "max_loss_pct": 0.07,
     "risk_per_trade": 0.02,
     "risk_mode": "dynamic",
     "fixed_risk_usd": 30.0

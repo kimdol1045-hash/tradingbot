@@ -176,10 +176,13 @@ class DataCollector:
         self.on_candle_close_callback = None  # (symbol, timeframe) → called on candle close
         self._ws_connected = False
         self._last_msg_ts = 0.0
+        self._last_candle_ts: dict[str, int] = {}  # symbol → last candle open timestamp
+        self._subscribed_symbols: list[str] = []  # symbols to resubscribe on reconnect
 
     async def start(self, symbols: list[str] | None = None) -> None:
         """Initialize DB and start WebSocket subscriptions."""
         symbols = symbols or ALL_SYMBOLS
+        self._subscribed_symbols = list(symbols)
         self._db = await init_db()
 
         loop = asyncio.get_event_loop()
@@ -282,8 +285,13 @@ class DataCollector:
             for c in completed:
                 logger.debug("Aggregated: %s %s @ %d", c["symbol"], c["timeframe"], c["timestamp"])
 
-        # Trigger pipeline on 5m candle close
-        if self.on_candle_close_callback:
+        # Trigger pipeline ONLY when a new candle starts (previous candle closed)
+        candle_ts = int(raw.get("t", 0))
+        prev_ts = self._last_candle_ts.get(symbol, 0)
+        self._last_candle_ts[symbol] = candle_ts
+
+        if self.on_candle_close_callback and prev_ts > 0 and candle_ts != prev_ts:
+            logger.info("Candle closed: %s (prev=%d, new=%d)", symbol, prev_ts, candle_ts)
             try:
                 self.on_candle_close_callback(symbol, "5m")
             except Exception:
@@ -351,9 +359,10 @@ class DataCollector:
                             await asyncio.sleep(2)
                             loop = asyncio.get_event_loop()
                             self._ws = HyperliquidWS(loop=loop)
-                            self._ws.subscribe_all(ALL_SYMBOLS)
+                            symbols = self._subscribed_symbols or ALL_SYMBOLS
+                            self._ws.subscribe_all(symbols)
                             self._last_msg_ts = time.time()  # Reset watchdog
-                            logger.info("WS reconnected after silence")
+                            logger.info("WS reconnected after silence (%d symbols)", len(symbols))
                     except Exception:
                         logger.exception("WS reconnect failed")
 
@@ -366,6 +375,17 @@ class DataCollector:
                 logger.info("WAL checkpoint completed")
             except Exception:
                 logger.exception("WAL checkpoint failed")
+
+    async def remove_symbols(self, symbols: list[str]) -> None:
+        """Unsubscribe removed symbols from WS and tracking."""
+        if not symbols:
+            return
+        if self._ws:
+            self._ws.unsubscribe_symbols(symbols)
+        for s in symbols:
+            if s in self._subscribed_symbols:
+                self._subscribed_symbols.remove(s)
+        logger.info("Removed %d symbols: %s (total: %d)", len(symbols), symbols, len(self._subscribed_symbols))
 
     async def add_symbols(self, new_symbols: list[str]) -> None:
         """Subscribe to new symbols and backfill their data.
@@ -380,7 +400,11 @@ class DataCollector:
         if self._ws:
             self._ws.subscribe_candles(new_symbols)
             self._ws.subscribe_asset_contexts(new_symbols)
-            logger.info("Subscribed %d new symbols: %s", len(new_symbols), new_symbols)
+            # Track for reconnect
+            for s in new_symbols:
+                if s not in self._subscribed_symbols:
+                    self._subscribed_symbols.append(s)
+            logger.info("Subscribed %d new symbols: %s (total: %d)", len(new_symbols), new_symbols, len(self._subscribed_symbols))
 
         # Backfill history for new symbols
         await self.backfill(symbols=new_symbols)
@@ -409,7 +433,7 @@ class DataCollector:
 
         end_ms = int(time.time() * 1000)
 
-        for symbol in symbols:
+        for i, symbol in enumerate(symbols):
             for tf, lookback in tf_days.items():
                 start_ms = end_ms - (lookback * 24 * 60 * 60 * 1000)
                 try:
@@ -424,3 +448,8 @@ class DataCollector:
                         )
                 except Exception:
                     logger.exception("Backfill failed: %s %s", symbol, tf)
+            # Rate limit: pause between symbols (every 3 symbols, longer pause)
+            if (i + 1) % 3 == 0:
+                await asyncio.sleep(1.0)
+            else:
+                await asyncio.sleep(0.15)

@@ -1,0 +1,3934 @@
+{
+  "generated_at": "2026-02-24 17:54:53",
+  "method": "full_pipeline_backtest",
+  "total_analyzed": 53,
+  "symbol_pool": {
+    "tier_1": [
+      "PAXG",
+      "BTC",
+      "CC",
+      "TAO",
+      "PENGU",
+      "YGG",
+      "TRUMP",
+      "ETH",
+      "VVV",
+      "XMR",
+      "SPX",
+      "MORPHO",
+      "DOGE",
+      "VIRTUAL",
+      "MON",
+      "ETHFI",
+      "UNI",
+      "AAVE",
+      "ZRO",
+      "FARTCOIN"
+    ],
+    "tier_2": [
+      "XPL",
+      "ASTER",
+      "PUMP",
+      "LTC",
+      "WLFI",
+      "ZEC",
+      "BCH",
+      "TRX",
+      "WLD",
+      "HYPE",
+      "XRP",
+      "EIGEN",
+      "TON",
+      "OP",
+      "BNB",
+      "ADA",
+      "BERA",
+      "APT",
+      "NEAR",
+      "INJ",
+      "SUI",
+      "POL",
+      "PROMPT",
+      "JUP",
+      "ENA",
+      "LINK"
+    ]
+  },
+  "details": [
+    {
+      "symbol": "PAXG",
+      "tier": "tier_1",
+      "score": 89.9,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3",
+        "s2"
+      ],
+      "days_tested": 333,
+      "metrics": {
+        "pf": 29.45,
+        "win_rate": 53.1,
+        "trades": 130,
+        "mdd": 1.1,
+        "sharpe": 3.33,
+        "sortino": 441.12,
+        "calmar": 3417.72,
+        "net_pnl": 347706.37,
+        "return_pct": 3477.1,
+        "days": 333.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.05,
+          "win_rate": 18.8,
+          "trades": 16,
+          "mdd": 5.4,
+          "sharpe": -4.76,
+          "sortino": -6.32,
+          "calmar": -1.1,
+          "net_pnl": -544.25,
+          "return_pct": -5.4,
+          "days": 333.0
+        },
+        "s2": {
+          "pf": 8.12,
+          "win_rate": 27.3,
+          "trades": 66,
+          "mdd": 5.3,
+          "sharpe": 1.31,
+          "sortino": 147.1,
+          "calmar": 57.1,
+          "net_pnl": 27631.66,
+          "return_pct": 276.3,
+          "days": 333.0
+        },
+        "s3": {
+          "pf": 19.24,
+          "win_rate": 41.3,
+          "trades": 206,
+          "mdd": 2.9,
+          "sharpe": 3.2,
+          "sortino": 112.51,
+          "calmar": 1027.64,
+          "net_pnl": 275764.71,
+          "return_pct": 2757.6,
+          "days": 333.0
+        },
+        "s4": {
+          "pf": 29.45,
+          "win_rate": 53.1,
+          "trades": 130,
+          "mdd": 1.1,
+          "sharpe": 3.33,
+          "sortino": 441.12,
+          "calmar": 3417.72,
+          "net_pnl": 347706.37,
+          "return_pct": 3477.1,
+          "days": 333.0
+        }
+      }
+    },
+    {
+      "symbol": "BTC",
+      "tier": "tier_1",
+      "score": 85.8,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s3",
+        "s4",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 37.34,
+        "win_rate": 45.7,
+        "trades": 582,
+        "mdd": 0.8,
+        "sharpe": 3.22,
+        "sortino": 422.89,
+        "calmar": 15278.53,
+        "net_pnl": 1230791.48,
+        "return_pct": 12307.9,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 15.03,
+          "win_rate": 37.3,
+          "trades": 2445,
+          "mdd": 3.6,
+          "sharpe": 3.59,
+          "sortino": 174.32,
+          "calmar": 4541.33,
+          "net_pnl": 1623147.82,
+          "return_pct": 16231.5,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 37.34,
+          "win_rate": 45.7,
+          "trades": 582,
+          "mdd": 0.8,
+          "sharpe": 3.22,
+          "sortino": 422.89,
+          "calmar": 15278.53,
+          "net_pnl": 1230791.48,
+          "return_pct": 12307.9,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 31.14,
+          "win_rate": 46.4,
+          "trades": 483,
+          "mdd": 3.0,
+          "sharpe": 4.16,
+          "sortino": 193.45,
+          "calmar": 4479.17,
+          "net_pnl": 1347711.98,
+          "return_pct": 13477.1,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 31.87,
+          "win_rate": 42.1,
+          "trades": 271,
+          "mdd": 3.9,
+          "sharpe": 3.83,
+          "sortino": 178.42,
+          "calmar": 2721.81,
+          "net_pnl": 1056613.02,
+          "return_pct": 10566.1,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "CC",
+      "tier": "tier_1",
+      "score": 84.5,
+      "best_agent": "s3",
+      "best_agents": [
+        "s2",
+        "s3",
+        "s4",
+        "s1"
+      ],
+      "days_tested": 115,
+      "metrics": {
+        "pf": 38.29,
+        "win_rate": 45.7,
+        "trades": 464,
+        "mdd": 2.2,
+        "sharpe": 7.11,
+        "sortino": 355.79,
+        "calmar": 39039.65,
+        "net_pnl": 2698440.31,
+        "return_pct": 26984.4,
+        "days": 115.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 47.8,
+          "win_rate": 43.5,
+          "trades": 1274,
+          "mdd": 4.3,
+          "sharpe": 6.94,
+          "sortino": 277.73,
+          "calmar": 55227.91,
+          "net_pnl": 7547014.12,
+          "return_pct": 75470.1,
+          "days": 115.0
+        },
+        "s2": {
+          "pf": 52.75,
+          "win_rate": 43.6,
+          "trades": 431,
+          "mdd": 1.0,
+          "sharpe": 4.22,
+          "sortino": 881.96,
+          "calmar": 97153.81,
+          "net_pnl": 3050585.52,
+          "return_pct": 30505.9,
+          "days": 115.0
+        },
+        "s3": {
+          "pf": 38.29,
+          "win_rate": 45.7,
+          "trades": 464,
+          "mdd": 2.2,
+          "sharpe": 7.11,
+          "sortino": 355.79,
+          "calmar": 39039.65,
+          "net_pnl": 2698440.31,
+          "return_pct": 26984.4,
+          "days": 115.0
+        },
+        "s4": {
+          "pf": 37.82,
+          "win_rate": 44.0,
+          "trades": 302,
+          "mdd": 2.2,
+          "sharpe": 5.66,
+          "sortino": 355.81,
+          "calmar": 29547.96,
+          "net_pnl": 2042369.66,
+          "return_pct": 20423.7,
+          "days": 115.0
+        }
+      }
+    },
+    {
+      "symbol": "TAO",
+      "tier": "tier_1",
+      "score": 83.2,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3",
+        "s1",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 34.46,
+        "win_rate": 45.1,
+        "trades": 760,
+        "mdd": 1.2,
+        "sharpe": 3.02,
+        "sortino": 457.91,
+        "calmar": 32124.42,
+        "net_pnl": 3823454.18,
+        "return_pct": 38234.5,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 37.03,
+          "win_rate": 42.0,
+          "trades": 3280,
+          "mdd": 2.2,
+          "sharpe": 3.85,
+          "sortino": 260.4,
+          "calmar": 54134.91,
+          "net_pnl": 11847406.23,
+          "return_pct": 118474.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 50.88,
+          "win_rate": 44.5,
+          "trades": 1100,
+          "mdd": 3.1,
+          "sharpe": 3.87,
+          "sortino": 161.02,
+          "calmar": 19814.91,
+          "net_pnl": 6228938.11,
+          "return_pct": 62289.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 36.65,
+          "win_rate": 46.9,
+          "trades": 1053,
+          "mdd": 1.1,
+          "sharpe": 3.68,
+          "sortino": 492.47,
+          "calmar": 46763.16,
+          "net_pnl": 4975317.62,
+          "return_pct": 49753.2,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 34.46,
+          "win_rate": 45.1,
+          "trades": 760,
+          "mdd": 1.2,
+          "sharpe": 3.02,
+          "sortino": 457.91,
+          "calmar": 32124.42,
+          "net_pnl": 3823454.18,
+          "return_pct": 38234.5,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "PENGU",
+      "tier": "tier_1",
+      "score": 82.2,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 36.89,
+        "win_rate": 46.3,
+        "trades": 942,
+        "mdd": 1.0,
+        "sharpe": 4.06,
+        "sortino": 388.03,
+        "calmar": 50921.9,
+        "net_pnl": 5320080.79,
+        "return_pct": 53200.8,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -758.25,
+          "return_pct": -7.6,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -677.66,
+          "return_pct": -6.8,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 38.54,
+          "win_rate": 45.5,
+          "trades": 1287,
+          "mdd": 2.5,
+          "sharpe": 3.85,
+          "sortino": 279.14,
+          "calmar": 27391.14,
+          "net_pnl": 6719151.43,
+          "return_pct": 67191.5,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 36.89,
+          "win_rate": 46.3,
+          "trades": 942,
+          "mdd": 1.0,
+          "sharpe": 4.06,
+          "sortino": 388.03,
+          "calmar": 50921.9,
+          "net_pnl": 5320080.79,
+          "return_pct": 53200.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "YGG",
+      "tier": "tier_1",
+      "score": 81.9,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 36.54,
+        "win_rate": 45.4,
+        "trades": 724,
+        "mdd": 2.4,
+        "sharpe": 4.94,
+        "sortino": 206.65,
+        "calmar": 15807.98,
+        "net_pnl": 3840944.6,
+        "return_pct": 38409.4,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.02,
+          "win_rate": 25.0,
+          "trades": 4,
+          "mdd": 6.9,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -686.8,
+          "return_pct": -6.9,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 47.41,
+          "win_rate": 43.2,
+          "trades": 1048,
+          "mdd": 2.6,
+          "sharpe": 4.11,
+          "sortino": 195.14,
+          "calmar": 22844.12,
+          "net_pnl": 5887141.88,
+          "return_pct": 58871.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -502.52,
+          "return_pct": -5.0,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 36.54,
+          "win_rate": 45.4,
+          "trades": 724,
+          "mdd": 2.4,
+          "sharpe": 4.94,
+          "sortino": 206.65,
+          "calmar": 15807.98,
+          "net_pnl": 3840944.6,
+          "return_pct": 38409.4,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "TRUMP",
+      "tier": "tier_1",
+      "score": 81.7,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s3",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 48.59,
+        "win_rate": 47.0,
+        "trades": 924,
+        "mdd": 1.7,
+        "sharpe": 3.92,
+        "sortino": 389.0,
+        "calmar": 26169.39,
+        "net_pnl": 4429447.81,
+        "return_pct": 44294.5,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 30.48,
+          "win_rate": 40.4,
+          "trades": 2934,
+          "mdd": 1.8,
+          "sharpe": 3.31,
+          "sortino": 314.64,
+          "calmar": 41895.4,
+          "net_pnl": 7338791.34,
+          "return_pct": 73387.9,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 48.59,
+          "win_rate": 47.0,
+          "trades": 924,
+          "mdd": 1.7,
+          "sharpe": 3.92,
+          "sortino": 389.0,
+          "calmar": 26169.39,
+          "net_pnl": 4429447.81,
+          "return_pct": 44294.5,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 33.47,
+          "win_rate": 44.3,
+          "trades": 803,
+          "mdd": 3.7,
+          "sharpe": 4.54,
+          "sortino": 105.85,
+          "calmar": 9546.39,
+          "net_pnl": 3529977.12,
+          "return_pct": 35299.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 9.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -906.87,
+          "return_pct": -9.1,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "ETH",
+      "tier": "tier_1",
+      "score": 81.1,
+      "best_agent": "s2",
+      "best_agents": [
+        "s4",
+        "s2",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 41.71,
+        "win_rate": 46.0,
+        "trades": 873,
+        "mdd": 2.1,
+        "sharpe": 3.74,
+        "sortino": 208.69,
+        "calmar": 14868.28,
+        "net_pnl": 3091906.89,
+        "return_pct": 30919.1,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 26.76,
+          "win_rate": 40.6,
+          "trades": 2783,
+          "mdd": 3.3,
+          "sharpe": 4.22,
+          "sortino": 261.37,
+          "calmar": 15263.7,
+          "net_pnl": 5099707.08,
+          "return_pct": 50997.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 41.71,
+          "win_rate": 46.0,
+          "trades": 873,
+          "mdd": 2.1,
+          "sharpe": 3.74,
+          "sortino": 208.69,
+          "calmar": 14868.28,
+          "net_pnl": 3091906.89,
+          "return_pct": 30919.1,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -638.35,
+          "return_pct": -6.4,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 36.27,
+          "win_rate": 44.2,
+          "trades": 473,
+          "mdd": 2.1,
+          "sharpe": 4.52,
+          "sortino": 193.81,
+          "calmar": 10496.9,
+          "net_pnl": 2182864.59,
+          "return_pct": 21828.6,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "VVV",
+      "tier": "tier_1",
+      "score": 81.0,
+      "best_agent": "s3",
+      "best_agents": [
+        "s2",
+        "s3",
+        "s4",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 42.16,
+        "win_rate": 47.5,
+        "trades": 1125,
+        "mdd": 1.8,
+        "sharpe": 3.35,
+        "sortino": 252.02,
+        "calmar": 35317.73,
+        "net_pnl": 6287025.0,
+        "return_pct": 62870.3,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 38.55,
+          "win_rate": 41.5,
+          "trades": 3479,
+          "mdd": 3.1,
+          "sharpe": 4.18,
+          "sortino": 187.27,
+          "calmar": 47729.2,
+          "net_pnl": 14942280.01,
+          "return_pct": 149422.8,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 51.27,
+          "win_rate": 44.6,
+          "trades": 1142,
+          "mdd": 0.7,
+          "sharpe": 3.7,
+          "sortino": 704.21,
+          "calmar": 101701.42,
+          "net_pnl": 7112640.46,
+          "return_pct": 71126.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 42.16,
+          "win_rate": 47.5,
+          "trades": 1125,
+          "mdd": 1.8,
+          "sharpe": 3.35,
+          "sortino": 252.02,
+          "calmar": 35317.73,
+          "net_pnl": 6287025.0,
+          "return_pct": 62870.3,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 42.84,
+          "win_rate": 47.3,
+          "trades": 780,
+          "mdd": 3.5,
+          "sharpe": 3.28,
+          "sortino": 159.43,
+          "calmar": 14266.84,
+          "net_pnl": 5048221.77,
+          "return_pct": 50482.2,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "XMR",
+      "tier": "tier_1",
+      "score": 80.9,
+      "best_agent": "s2",
+      "best_agents": [
+        "s4",
+        "s3",
+        "s2",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 45.27,
+        "win_rate": 45.7,
+        "trades": 972,
+        "mdd": 1.5,
+        "sharpe": 3.94,
+        "sortino": 722.07,
+        "calmar": 29198.03,
+        "net_pnl": 4336030.64,
+        "return_pct": 43360.3,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 29.31,
+          "win_rate": 40.7,
+          "trades": 2939,
+          "mdd": 2.3,
+          "sharpe": 4.48,
+          "sortino": 381.26,
+          "calmar": 31469.99,
+          "net_pnl": 7225748.32,
+          "return_pct": 72257.5,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 45.27,
+          "win_rate": 45.7,
+          "trades": 972,
+          "mdd": 1.5,
+          "sharpe": 3.94,
+          "sortino": 722.07,
+          "calmar": 29198.03,
+          "net_pnl": 4336030.64,
+          "return_pct": 43360.3,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 33.12,
+          "win_rate": 44.7,
+          "trades": 884,
+          "mdd": 1.3,
+          "sharpe": 4.96,
+          "sortino": 404.51,
+          "calmar": 28570.89,
+          "net_pnl": 3625248.06,
+          "return_pct": 36252.5,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 30.25,
+          "win_rate": 41.5,
+          "trades": 614,
+          "mdd": 1.5,
+          "sharpe": 4.46,
+          "sortino": 398.96,
+          "calmar": 17369.66,
+          "net_pnl": 2628563.0,
+          "return_pct": 26285.6,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "SPX",
+      "tier": "tier_1",
+      "score": 80.3,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 38.93,
+        "win_rate": 47.2,
+        "trades": 1423,
+        "mdd": 2.2,
+        "sharpe": 5.3,
+        "sortino": 281.07,
+        "calmar": 37308.48,
+        "net_pnl": 8120867.91,
+        "return_pct": 81208.7,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -628.14,
+          "return_pct": -6.3,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -525.66,
+          "return_pct": -5.3,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 38.93,
+          "win_rate": 47.2,
+          "trades": 1423,
+          "mdd": 2.2,
+          "sharpe": 5.3,
+          "sortino": 281.07,
+          "calmar": 37308.48,
+          "net_pnl": 8120867.91,
+          "return_pct": 81208.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 35.48,
+          "win_rate": 45.8,
+          "trades": 1032,
+          "mdd": 4.4,
+          "sharpe": 4.92,
+          "sortino": 143.76,
+          "calmar": 14226.51,
+          "net_pnl": 6217520.42,
+          "return_pct": 62175.2,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "MORPHO",
+      "tier": "tier_1",
+      "score": 80.0,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s1",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 53.2,
+        "win_rate": 45.8,
+        "trades": 1089,
+        "mdd": 1.9,
+        "sharpe": 3.61,
+        "sortino": 376.82,
+        "calmar": 33214.87,
+        "net_pnl": 6315137.91,
+        "return_pct": 63151.4,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 33.82,
+          "win_rate": 40.1,
+          "trades": 3245,
+          "mdd": 1.2,
+          "sharpe": 4.2,
+          "sortino": 625.33,
+          "calmar": 89025.54,
+          "net_pnl": 11007989.79,
+          "return_pct": 110079.9,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 53.2,
+          "win_rate": 45.8,
+          "trades": 1089,
+          "mdd": 1.9,
+          "sharpe": 3.61,
+          "sortino": 376.82,
+          "calmar": 33214.87,
+          "net_pnl": 6315137.91,
+          "return_pct": 63151.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 34.26,
+          "win_rate": 43.9,
+          "trades": 1050,
+          "mdd": 2.2,
+          "sharpe": 2.24,
+          "sortino": 277.2,
+          "calmar": 22288.23,
+          "net_pnl": 4884876.57,
+          "return_pct": 48848.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 10.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -1046.76,
+          "return_pct": -10.5,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "DOGE",
+      "tier": "tier_1",
+      "score": 79.9,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 38.87,
+        "win_rate": 47.0,
+        "trades": 878,
+        "mdd": 3.2,
+        "sharpe": 3.7,
+        "sortino": 228.13,
+        "calmar": 12800.29,
+        "net_pnl": 4102417.35,
+        "return_pct": 41024.2,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -765.18,
+          "return_pct": -7.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 49.33,
+          "win_rate": 45.6,
+          "trades": 972,
+          "mdd": 2.5,
+          "sharpe": 3.99,
+          "sortino": 188.36,
+          "calmar": 18824.39,
+          "net_pnl": 4727484.14,
+          "return_pct": 47274.8,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 38.87,
+          "win_rate": 47.0,
+          "trades": 878,
+          "mdd": 3.2,
+          "sharpe": 3.7,
+          "sortino": 228.13,
+          "calmar": 12800.29,
+          "net_pnl": 4102417.35,
+          "return_pct": 41024.2,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 34.38,
+          "win_rate": 43.3,
+          "trades": 649,
+          "mdd": 3.5,
+          "sharpe": 3.39,
+          "sortino": 215.84,
+          "calmar": 9127.41,
+          "net_pnl": 3184984.09,
+          "return_pct": 31849.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "VIRTUAL",
+      "tier": "tier_1",
+      "score": 79.5,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s1",
+        "s3",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 58.37,
+        "win_rate": 47.3,
+        "trades": 1249,
+        "mdd": 2.8,
+        "sharpe": 4.31,
+        "sortino": 320.91,
+        "calmar": 30139.98,
+        "net_pnl": 8549044.15,
+        "return_pct": 85490.4,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 43.32,
+          "win_rate": 43.3,
+          "trades": 3721,
+          "mdd": 1.5,
+          "sharpe": 3.68,
+          "sortino": 462.19,
+          "calmar": 121817.43,
+          "net_pnl": 17908069.96,
+          "return_pct": 179080.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 58.37,
+          "win_rate": 47.3,
+          "trades": 1249,
+          "mdd": 2.8,
+          "sharpe": 4.31,
+          "sortino": 320.91,
+          "calmar": 30139.98,
+          "net_pnl": 8549044.15,
+          "return_pct": 85490.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 42.3,
+          "win_rate": 48.5,
+          "trades": 1238,
+          "mdd": 2.2,
+          "sharpe": 2.18,
+          "sortino": 282.57,
+          "calmar": 31203.93,
+          "net_pnl": 6845299.41,
+          "return_pct": 68453.0,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 36.94,
+          "win_rate": 44.5,
+          "trades": 899,
+          "mdd": 1.2,
+          "sharpe": 1.86,
+          "sortino": 586.07,
+          "calmar": 44296.68,
+          "net_pnl": 5281332.29,
+          "return_pct": 52813.3,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "MON",
+      "tier": "tier_1",
+      "score": 79.0,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1"
+      ],
+      "days_tested": 136,
+      "metrics": {
+        "pf": 52.29,
+        "win_rate": 45.9,
+        "trades": 1600,
+        "mdd": 2.6,
+        "sharpe": 4.0,
+        "sortino": 794.86,
+        "calmar": 106904.32,
+        "net_pnl": 10563170.11,
+        "return_pct": 105631.7,
+        "days": 136.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 52.29,
+          "win_rate": 45.9,
+          "trades": 1600,
+          "mdd": 2.6,
+          "sharpe": 4.0,
+          "sortino": 794.86,
+          "calmar": 106904.32,
+          "net_pnl": 10563170.11,
+          "return_pct": 105631.7,
+          "days": 136.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -2.68,
+          "net_pnl": -778.56,
+          "return_pct": -7.8,
+          "days": 136.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -2.68,
+          "net_pnl": -800.14,
+          "return_pct": -8.0,
+          "days": 136.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 5.9,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -2.68,
+          "net_pnl": -593.79,
+          "return_pct": -5.9,
+          "days": 136.0
+        }
+      }
+    },
+    {
+      "symbol": "ETHFI",
+      "tier": "tier_1",
+      "score": 77.9,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 53.46,
+        "win_rate": 46.0,
+        "trades": 1201,
+        "mdd": 3.4,
+        "sharpe": 4.2,
+        "sortino": 262.2,
+        "calmar": 22121.48,
+        "net_pnl": 7605733.51,
+        "return_pct": 76057.3,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -645.22,
+          "return_pct": -6.5,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 53.46,
+          "win_rate": 46.0,
+          "trades": 1201,
+          "mdd": 3.4,
+          "sharpe": 4.2,
+          "sortino": 262.2,
+          "calmar": 22121.48,
+          "net_pnl": 7605733.51,
+          "return_pct": 76057.3,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -528.91,
+          "return_pct": -5.3,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 32.44,
+          "win_rate": 42.9,
+          "trades": 853,
+          "mdd": 3.9,
+          "sharpe": 3.81,
+          "sortino": 117.29,
+          "calmar": 11119.09,
+          "net_pnl": 4376854.65,
+          "return_pct": 43768.5,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "UNI",
+      "tier": "tier_1",
+      "score": 77.3,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 38.78,
+        "win_rate": 46.5,
+        "trades": 945,
+        "mdd": 4.3,
+        "sharpe": 4.8,
+        "sortino": 147.8,
+        "calmar": 10602.08,
+        "net_pnl": 4591981.9,
+        "return_pct": 45919.8,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -862.32,
+          "return_pct": -8.6,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.81,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 38.78,
+          "win_rate": 46.5,
+          "trades": 945,
+          "mdd": 4.3,
+          "sharpe": 4.8,
+          "sortino": 147.8,
+          "calmar": 10602.08,
+          "net_pnl": 4591981.9,
+          "return_pct": 45919.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 34.3,
+          "win_rate": 41.9,
+          "trades": 700,
+          "mdd": 4.5,
+          "sharpe": 4.4,
+          "sortino": 142.63,
+          "calmar": 7986.7,
+          "net_pnl": 3582714.54,
+          "return_pct": 35827.1,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "AAVE",
+      "tier": "tier_1",
+      "score": 77.0,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 35.85,
+        "win_rate": 45.8,
+        "trades": 933,
+        "mdd": 4.4,
+        "sharpe": 4.66,
+        "sortino": 147.4,
+        "calmar": 9462.11,
+        "net_pnl": 4158476.91,
+        "return_pct": 41584.8,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -609.45,
+          "return_pct": -6.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -501.09,
+          "return_pct": -5.0,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 35.85,
+          "win_rate": 45.8,
+          "trades": 933,
+          "mdd": 4.4,
+          "sharpe": 4.66,
+          "sortino": 147.4,
+          "calmar": 9462.11,
+          "net_pnl": 4158476.91,
+          "return_pct": 41584.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -677.43,
+          "return_pct": -6.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "ZRO",
+      "tier": "tier_1",
+      "score": 76.3,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 36.5,
+        "win_rate": 45.5,
+        "trades": 1159,
+        "mdd": 4.3,
+        "sharpe": 4.8,
+        "sortino": 155.68,
+        "calmar": 12954.9,
+        "net_pnl": 5607509.77,
+        "return_pct": 56075.1,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -597.56,
+          "return_pct": -6.0,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 8.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -837.06,
+          "return_pct": -8.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 36.5,
+          "win_rate": 45.5,
+          "trades": 1159,
+          "mdd": 4.3,
+          "sharpe": 4.8,
+          "sortino": 155.68,
+          "calmar": 12954.9,
+          "net_pnl": 5607509.77,
+          "return_pct": 56075.1,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -532.69,
+          "return_pct": -5.3,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "FARTCOIN",
+      "tier": "tier_1",
+      "score": 73.0,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 55.22,
+        "win_rate": 45.0,
+        "trades": 1359,
+        "mdd": 1.9,
+        "sharpe": 2.0,
+        "sortino": 611.87,
+        "calmar": 51012.91,
+        "net_pnl": 9909760.21,
+        "return_pct": 99097.6,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -531.96,
+          "return_pct": -5.3,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 55.22,
+          "win_rate": 45.0,
+          "trades": 1359,
+          "mdd": 1.9,
+          "sharpe": 2.0,
+          "sortino": 611.87,
+          "calmar": 51012.91,
+          "net_pnl": 9909760.21,
+          "return_pct": 99097.6,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -782.06,
+          "return_pct": -7.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -734.19,
+          "return_pct": -7.3,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "XPL",
+      "tier": "tier_2",
+      "score": 83.9,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4"
+      ],
+      "days_tested": 185,
+      "metrics": {
+        "pf": 34.91,
+        "win_rate": 44.4,
+        "trades": 500,
+        "mdd": 2.2,
+        "sharpe": 3.26,
+        "sortino": 466.56,
+        "calmar": 29262.89,
+        "net_pnl": 3212314.15,
+        "return_pct": 32123.1,
+        "days": 185.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.97,
+          "net_pnl": -531.79,
+          "return_pct": -5.3,
+          "days": 185.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 6.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.97,
+          "net_pnl": -656.76,
+          "return_pct": -6.6,
+          "days": 185.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.97,
+          "net_pnl": -781.96,
+          "return_pct": -7.8,
+          "days": 185.0
+        },
+        "s4": {
+          "pf": 34.91,
+          "win_rate": 44.4,
+          "trades": 500,
+          "mdd": 2.2,
+          "sharpe": 3.26,
+          "sortino": 466.56,
+          "calmar": 29262.89,
+          "net_pnl": 3212314.15,
+          "return_pct": 32123.1,
+          "days": 185.0
+        }
+      }
+    },
+    {
+      "symbol": "ASTER",
+      "tier": "tier_2",
+      "score": 83.2,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s2"
+      ],
+      "days_tested": 157,
+      "metrics": {
+        "pf": 39.81,
+        "win_rate": 44.6,
+        "trades": 314,
+        "mdd": 1.3,
+        "sharpe": 2.68,
+        "sortino": 616.98,
+        "calmar": 39525.93,
+        "net_pnl": 2235057.09,
+        "return_pct": 22350.6,
+        "days": 157.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -2.33,
+          "net_pnl": -531.93,
+          "return_pct": -5.3,
+          "days": 157.0
+        },
+        "s2": {
+          "pf": 40.16,
+          "win_rate": 39.4,
+          "trades": 475,
+          "mdd": 3.0,
+          "sharpe": 2.69,
+          "sortino": 844.59,
+          "calmar": 21183.75,
+          "net_pnl": 2700936.09,
+          "return_pct": 27009.4,
+          "days": 157.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -2.33,
+          "net_pnl": -781.57,
+          "return_pct": -7.8,
+          "days": 157.0
+        },
+        "s4": {
+          "pf": 39.81,
+          "win_rate": 44.6,
+          "trades": 314,
+          "mdd": 1.3,
+          "sharpe": 2.68,
+          "sortino": 616.98,
+          "calmar": 39525.93,
+          "net_pnl": 2235057.09,
+          "return_pct": 22350.6,
+          "days": 157.0
+        }
+      }
+    },
+    {
+      "symbol": "PUMP",
+      "tier": "tier_2",
+      "score": 82.8,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "days_tested": 228,
+      "metrics": {
+        "pf": 34.9,
+        "win_rate": 44.5,
+        "trades": 659,
+        "mdd": 1.9,
+        "sharpe": 3.55,
+        "sortino": 330.16,
+        "calmar": 34458.99,
+        "net_pnl": 4039061.54,
+        "return_pct": 40390.6,
+        "days": 228.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 44.16,
+          "win_rate": 43.0,
+          "trades": 2563,
+          "mdd": 1.2,
+          "sharpe": 4.28,
+          "sortino": 834.9,
+          "calmar": 181965.53,
+          "net_pnl": 14033537.3,
+          "return_pct": 140335.4,
+          "days": 228.0
+        },
+        "s2": {
+          "pf": 51.96,
+          "win_rate": 43.4,
+          "trades": 806,
+          "mdd": 4.3,
+          "sharpe": 3.27,
+          "sortino": 250.28,
+          "calmar": 20604.16,
+          "net_pnl": 5587313.94,
+          "return_pct": 55873.1,
+          "days": 228.0
+        },
+        "s3": {
+          "pf": 36.15,
+          "win_rate": 44.3,
+          "trades": 918,
+          "mdd": 4.0,
+          "sharpe": 4.22,
+          "sortino": 272.23,
+          "calmar": 20260.54,
+          "net_pnl": 5070335.66,
+          "return_pct": 50703.4,
+          "days": 228.0
+        },
+        "s4": {
+          "pf": 34.9,
+          "win_rate": 44.5,
+          "trades": 659,
+          "mdd": 1.9,
+          "sharpe": 3.55,
+          "sortino": 330.16,
+          "calmar": 34458.99,
+          "net_pnl": 4039061.54,
+          "return_pct": 40390.6,
+          "days": 228.0
+        }
+      }
+    },
+    {
+      "symbol": "LTC",
+      "tier": "tier_2",
+      "score": 81.9,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s2",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 32.92,
+        "win_rate": 44.1,
+        "trades": 726,
+        "mdd": 1.9,
+        "sharpe": 3.39,
+        "sortino": 260.3,
+        "calmar": 15145.89,
+        "net_pnl": 2943307.44,
+        "return_pct": 29433.1,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -602.52,
+          "return_pct": -6.0,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 42.09,
+          "win_rate": 43.6,
+          "trades": 833,
+          "mdd": 1.7,
+          "sharpe": 3.77,
+          "sortino": 268.16,
+          "calmar": 19059.89,
+          "net_pnl": 3273700.71,
+          "return_pct": 32737.0,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 32.92,
+          "win_rate": 44.1,
+          "trades": 726,
+          "mdd": 1.9,
+          "sharpe": 3.39,
+          "sortino": 260.3,
+          "calmar": 15145.89,
+          "net_pnl": 2943307.44,
+          "return_pct": 29433.1,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 27.13,
+          "win_rate": 38.2,
+          "trades": 484,
+          "mdd": 1.9,
+          "sharpe": 2.7,
+          "sortino": 286.08,
+          "calmar": 10593.21,
+          "net_pnl": 2015015.77,
+          "return_pct": 20150.2,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "WLFI",
+      "tier": "tier_2",
+      "score": 81.6,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s1"
+      ],
+      "days_tested": 184,
+      "metrics": {
+        "pf": 33.94,
+        "win_rate": 42.2,
+        "trades": 329,
+        "mdd": 2.1,
+        "sharpe": 2.8,
+        "sortino": 440.21,
+        "calmar": 19439.22,
+        "net_pnl": 2048530.55,
+        "return_pct": 20485.3,
+        "days": 184.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 14.11,
+          "win_rate": 20.0,
+          "trades": 5,
+          "mdd": 5.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": 92.6,
+          "net_pnl": 23799.2,
+          "return_pct": 238.0,
+          "days": 184.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 6.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.98,
+          "net_pnl": -656.88,
+          "return_pct": -6.6,
+          "days": 184.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.98,
+          "net_pnl": -765.9,
+          "return_pct": -7.7,
+          "days": 184.0
+        },
+        "s4": {
+          "pf": 33.94,
+          "win_rate": 42.2,
+          "trades": 329,
+          "mdd": 2.1,
+          "sharpe": 2.8,
+          "sortino": 440.21,
+          "calmar": 19439.22,
+          "net_pnl": 2048530.55,
+          "return_pct": 20485.3,
+          "days": 184.0
+        }
+      }
+    },
+    {
+      "symbol": "ZEC",
+      "tier": "tier_2",
+      "score": 80.6,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 29.53,
+        "win_rate": 42.2,
+        "trades": 791,
+        "mdd": 1.7,
+        "sharpe": 4.46,
+        "sortino": 333.12,
+        "calmar": 23698.59,
+        "net_pnl": 4114546.72,
+        "return_pct": 41145.5,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 10.89,
+          "win_rate": 25.0,
+          "trades": 4,
+          "mdd": 5.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": 23.74,
+          "net_pnl": 12689.79,
+          "return_pct": 126.9,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 50.8,
+          "win_rate": 43.7,
+          "trades": 1165,
+          "mdd": 1.2,
+          "sharpe": 4.21,
+          "sortino": 537.71,
+          "calmar": 61944.06,
+          "net_pnl": 7388699.68,
+          "return_pct": 73887.0,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 34.86,
+          "win_rate": 44.4,
+          "trades": 1143,
+          "mdd": 1.2,
+          "sharpe": 4.42,
+          "sortino": 346.21,
+          "calmar": 50727.45,
+          "net_pnl": 5916218.65,
+          "return_pct": 59162.2,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 29.53,
+          "win_rate": 42.2,
+          "trades": 791,
+          "mdd": 1.7,
+          "sharpe": 4.46,
+          "sortino": 333.12,
+          "calmar": 23698.59,
+          "net_pnl": 4114546.72,
+          "return_pct": 41145.5,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "BCH",
+      "tier": "tier_2",
+      "score": 80.6,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 30.82,
+        "win_rate": 44.8,
+        "trades": 716,
+        "mdd": 3.1,
+        "sharpe": 3.83,
+        "sortino": 144.5,
+        "calmar": 9021.38,
+        "net_pnl": 2762255.78,
+        "return_pct": 27622.6,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -502.95,
+          "return_pct": -5.0,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -530.88,
+          "return_pct": -5.3,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 30.82,
+          "win_rate": 44.8,
+          "trades": 716,
+          "mdd": 3.1,
+          "sharpe": 3.83,
+          "sortino": 144.5,
+          "calmar": 9021.38,
+          "net_pnl": 2762255.78,
+          "return_pct": 27622.6,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 26.62,
+          "win_rate": 40.0,
+          "trades": 475,
+          "mdd": 4.6,
+          "sharpe": 4.57,
+          "sortino": 130.09,
+          "calmar": 4303.41,
+          "net_pnl": 1982640.75,
+          "return_pct": 19826.4,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "TRX",
+      "tier": "tier_2",
+      "score": 80.3,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4",
+        "s1",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 21.91,
+        "win_rate": 43.5,
+        "trades": 372,
+        "mdd": 4.3,
+        "sharpe": 3.55,
+        "sortino": 94.39,
+        "calmar": 1620.04,
+        "net_pnl": 701843.68,
+        "return_pct": 7018.4,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 7.31,
+          "win_rate": 28.5,
+          "trades": 2352,
+          "mdd": 2.8,
+          "sharpe": 3.13,
+          "sortino": 151.17,
+          "calmar": 2586.51,
+          "net_pnl": 734605.5,
+          "return_pct": 7346.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 7.95,
+          "win_rate": 18.8,
+          "trades": 16,
+          "mdd": 5.1,
+          "sharpe": 0.94,
+          "sortino": 66.04,
+          "calmar": 29.06,
+          "net_pnl": 14708.7,
+          "return_pct": 147.1,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 21.91,
+          "win_rate": 43.5,
+          "trades": 372,
+          "mdd": 4.3,
+          "sharpe": 3.55,
+          "sortino": 94.39,
+          "calmar": 1620.04,
+          "net_pnl": 701843.68,
+          "return_pct": 7018.4,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 29.6,
+          "win_rate": 42.7,
+          "trades": 206,
+          "mdd": 4.9,
+          "sharpe": 3.38,
+          "sortino": 97.15,
+          "calmar": 1409.17,
+          "net_pnl": 687232.05,
+          "return_pct": 6872.3,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "WLD",
+      "tier": "tier_2",
+      "score": 79.9,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s2",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 30.62,
+        "win_rate": 42.1,
+        "trades": 788,
+        "mdd": 2.2,
+        "sharpe": 4.73,
+        "sortino": 209.71,
+        "calmar": 17425.08,
+        "net_pnl": 3808238.55,
+        "return_pct": 38082.4,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -806.87,
+          "return_pct": -8.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 42.51,
+          "win_rate": 41.1,
+          "trades": 1104,
+          "mdd": 2.2,
+          "sharpe": 4.07,
+          "sortino": 219.41,
+          "calmar": 26808.28,
+          "net_pnl": 5858931.68,
+          "return_pct": 58589.3,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 33.66,
+          "win_rate": 44.9,
+          "trades": 1076,
+          "mdd": 4.3,
+          "sharpe": 4.87,
+          "sortino": 155.69,
+          "calmar": 11312.89,
+          "net_pnl": 4889981.26,
+          "return_pct": 48899.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 30.62,
+          "win_rate": 42.1,
+          "trades": 788,
+          "mdd": 2.2,
+          "sharpe": 4.73,
+          "sortino": 209.71,
+          "calmar": 17425.08,
+          "net_pnl": 3808238.55,
+          "return_pct": 38082.4,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "HYPE",
+      "tier": "tier_2",
+      "score": 79.8,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1",
+        "s3",
+        "s2",
+        "s4"
+      ],
+      "days_tested": 269,
+      "metrics": {
+        "pf": 39.27,
+        "win_rate": 43.8,
+        "trades": 2490,
+        "mdd": 1.4,
+        "sharpe": 4.12,
+        "sortino": 620.68,
+        "calmar": 90553.99,
+        "net_pnl": 9619683.04,
+        "return_pct": 96196.8,
+        "days": 269.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 39.27,
+          "win_rate": 43.8,
+          "trades": 2490,
+          "mdd": 1.4,
+          "sharpe": 4.12,
+          "sortino": 620.68,
+          "calmar": 90553.99,
+          "net_pnl": 9619683.04,
+          "return_pct": 96196.8,
+          "days": 269.0
+        },
+        "s2": {
+          "pf": 39.84,
+          "win_rate": 38.7,
+          "trades": 850,
+          "mdd": 2.2,
+          "sharpe": 4.49,
+          "sortino": 265.82,
+          "calmar": 26283.82,
+          "net_pnl": 4245882.77,
+          "return_pct": 42458.8,
+          "days": 269.0
+        },
+        "s3": {
+          "pf": 28.69,
+          "win_rate": 40.0,
+          "trades": 845,
+          "mdd": 2.2,
+          "sharpe": 5.62,
+          "sortino": 247.89,
+          "calmar": 20883.26,
+          "net_pnl": 3375511.81,
+          "return_pct": 33755.1,
+          "days": 269.0
+        },
+        "s4": {
+          "pf": 28.02,
+          "win_rate": 38.4,
+          "trades": 623,
+          "mdd": 4.3,
+          "sharpe": 3.48,
+          "sortino": 194.81,
+          "calmar": 8377.92,
+          "net_pnl": 2677780.98,
+          "return_pct": 26777.8,
+          "days": 269.0
+        }
+      }
+    },
+    {
+      "symbol": "XRP",
+      "tier": "tier_2",
+      "score": 79.8,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 34.0,
+        "win_rate": 42.7,
+        "trades": 506,
+        "mdd": 1.1,
+        "sharpe": 2.27,
+        "sortino": 539.7,
+        "calmar": 21768.47,
+        "net_pnl": 2282281.23,
+        "return_pct": 22822.8,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.2,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -815.29,
+          "return_pct": -8.2,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 38.8,
+          "win_rate": 43.7,
+          "trades": 879,
+          "mdd": 4.4,
+          "sharpe": 2.54,
+          "sortino": 178.2,
+          "calmar": 7384.86,
+          "net_pnl": 3220942.52,
+          "return_pct": 32209.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 32.72,
+          "win_rate": 42.9,
+          "trades": 742,
+          "mdd": 2.2,
+          "sharpe": 2.78,
+          "sortino": 361.42,
+          "calmar": 13585.21,
+          "net_pnl": 2957445.5,
+          "return_pct": 29574.5,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 34.0,
+          "win_rate": 42.7,
+          "trades": 506,
+          "mdd": 1.1,
+          "sharpe": 2.27,
+          "sortino": 539.7,
+          "calmar": 21768.47,
+          "net_pnl": 2282281.23,
+          "return_pct": 22822.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "EIGEN",
+      "tier": "tier_2",
+      "score": 79.8,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s4",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 51.82,
+        "win_rate": 44.6,
+        "trades": 1268,
+        "mdd": 1.7,
+        "sharpe": 4.14,
+        "sortino": 386.61,
+        "calmar": 46674.45,
+        "net_pnl": 8013884.54,
+        "return_pct": 80138.8,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 10.62,
+          "win_rate": 25.0,
+          "trades": 4,
+          "mdd": 5.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": 23.15,
+          "net_pnl": 12698.54,
+          "return_pct": 127.0,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 51.82,
+          "win_rate": 44.6,
+          "trades": 1268,
+          "mdd": 1.7,
+          "sharpe": 4.14,
+          "sortino": 386.61,
+          "calmar": 46674.45,
+          "net_pnl": 8013884.54,
+          "return_pct": 80138.8,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 33.41,
+          "win_rate": 44.6,
+          "trades": 1250,
+          "mdd": 3.4,
+          "sharpe": 4.56,
+          "sortino": 149.38,
+          "calmar": 17364.87,
+          "net_pnl": 5959629.82,
+          "return_pct": 59596.3,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 29.95,
+          "win_rate": 42.8,
+          "trades": 880,
+          "mdd": 3.4,
+          "sharpe": 4.59,
+          "sortino": 122.89,
+          "calmar": 12741.53,
+          "net_pnl": 4383421.27,
+          "return_pct": 43834.2,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "TON",
+      "tier": "tier_2",
+      "score": 79.6,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2",
+        "s3",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 33.54,
+        "win_rate": 40.7,
+        "trades": 825,
+        "mdd": 1.7,
+        "sharpe": 3.66,
+        "sortino": 362.56,
+        "calmar": 16428.36,
+        "net_pnl": 2806591.74,
+        "return_pct": 28065.9,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.68,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 33.54,
+          "win_rate": 40.7,
+          "trades": 825,
+          "mdd": 1.7,
+          "sharpe": 3.66,
+          "sortino": 362.56,
+          "calmar": 16428.36,
+          "net_pnl": 2806591.74,
+          "return_pct": 28065.9,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 30.01,
+          "win_rate": 43.0,
+          "trades": 724,
+          "mdd": 4.3,
+          "sharpe": 4.48,
+          "sortino": 136.52,
+          "calmar": 6216.48,
+          "net_pnl": 2697713.33,
+          "return_pct": 26977.1,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 27.36,
+          "win_rate": 37.8,
+          "trades": 521,
+          "mdd": 4.7,
+          "sharpe": 4.47,
+          "sortino": 130.88,
+          "calmar": 4555.26,
+          "net_pnl": 2142981.05,
+          "return_pct": 21429.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "OP",
+      "tier": "tier_2",
+      "score": 79.5,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 29.75,
+        "win_rate": 40.8,
+        "trades": 715,
+        "mdd": 2.5,
+        "sharpe": 3.94,
+        "sortino": 184.12,
+        "calmar": 13248.85,
+        "net_pnl": 3251821.8,
+        "return_pct": 32518.2,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.2,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -822.63,
+          "return_pct": -8.2,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.13,
+          "win_rate": 25.0,
+          "trades": 4,
+          "mdd": 6.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -609.01,
+          "return_pct": -6.1,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 34.78,
+          "win_rate": 44.9,
+          "trades": 1001,
+          "mdd": 2.2,
+          "sharpe": 4.08,
+          "sortino": 202.19,
+          "calmar": 20723.31,
+          "net_pnl": 4526903.18,
+          "return_pct": 45269.0,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 29.75,
+          "win_rate": 40.8,
+          "trades": 715,
+          "mdd": 2.5,
+          "sharpe": 3.94,
+          "sortino": 184.12,
+          "calmar": 13248.85,
+          "net_pnl": 3251821.8,
+          "return_pct": 32518.2,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "BNB",
+      "tier": "tier_2",
+      "score": 79.3,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4",
+        "s2",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 29.07,
+        "win_rate": 42.6,
+        "trades": 554,
+        "mdd": 4.3,
+        "sharpe": 4.22,
+        "sortino": 120.96,
+        "calmar": 4056.22,
+        "net_pnl": 1756916.06,
+        "return_pct": 17569.2,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 16.65,
+          "win_rate": 33.8,
+          "trades": 2535,
+          "mdd": 3.8,
+          "sharpe": 3.79,
+          "sortino": 149.16,
+          "calmar": 6618.84,
+          "net_pnl": 2479628.44,
+          "return_pct": 24796.3,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 28.39,
+          "win_rate": 40.6,
+          "trades": 695,
+          "mdd": 4.3,
+          "sharpe": 3.22,
+          "sortino": 149.4,
+          "calmar": 3828.53,
+          "net_pnl": 1658691.75,
+          "return_pct": 16586.9,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 29.07,
+          "win_rate": 42.6,
+          "trades": 554,
+          "mdd": 4.3,
+          "sharpe": 4.22,
+          "sortino": 120.96,
+          "calmar": 4056.22,
+          "net_pnl": 1756916.06,
+          "return_pct": 17569.2,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 33.1,
+          "win_rate": 40.6,
+          "trades": 342,
+          "mdd": 4.3,
+          "sharpe": 3.94,
+          "sortino": 131.26,
+          "calmar": 3381.49,
+          "net_pnl": 1464663.78,
+          "return_pct": 14646.6,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "ADA",
+      "tier": "tier_2",
+      "score": 78.7,
+      "best_agent": "s3",
+      "best_agents": [
+        "s4",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 31.37,
+        "win_rate": 42.3,
+        "trades": 860,
+        "mdd": 2.6,
+        "sharpe": 4.69,
+        "sortino": 194.5,
+        "calmar": 13464.73,
+        "net_pnl": 3514968.7,
+        "return_pct": 35149.7,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 7.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -726.26,
+          "return_pct": -7.3,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -504.3,
+          "return_pct": -5.0,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 31.37,
+          "win_rate": 42.3,
+          "trades": 860,
+          "mdd": 2.6,
+          "sharpe": 4.69,
+          "sortino": 194.5,
+          "calmar": 13464.73,
+          "net_pnl": 3514968.7,
+          "return_pct": 35149.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 27.76,
+          "win_rate": 38.8,
+          "trades": 614,
+          "mdd": 2.2,
+          "sharpe": 4.36,
+          "sortino": 217.76,
+          "calmar": 12043.55,
+          "net_pnl": 2640192.15,
+          "return_pct": 26401.9,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "BERA",
+      "tier": "tier_2",
+      "score": 78.6,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 39.82,
+        "win_rate": 41.4,
+        "trades": 3459,
+        "mdd": 1.4,
+        "sharpe": 4.67,
+        "sortino": 497.91,
+        "calmar": 107276.3,
+        "net_pnl": 15087451.16,
+        "return_pct": 150874.5,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 39.82,
+          "win_rate": 41.4,
+          "trades": 3459,
+          "mdd": 1.4,
+          "sharpe": 4.67,
+          "sortino": 497.91,
+          "calmar": 107276.3,
+          "net_pnl": 15087451.16,
+          "return_pct": 150874.5,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 6.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -656.96,
+          "return_pct": -6.6,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -781.84,
+          "return_pct": -7.8,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 9.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -906.89,
+          "return_pct": -9.1,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "APT",
+      "tier": "tier_2",
+      "score": 77.9,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 31.0,
+        "win_rate": 42.3,
+        "trades": 636,
+        "mdd": 4.6,
+        "sharpe": 3.91,
+        "sortino": 191.52,
+        "calmar": 6247.85,
+        "net_pnl": 2850994.73,
+        "return_pct": 28509.9,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -566.95,
+          "return_pct": -5.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.79,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.84,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 31.0,
+          "win_rate": 42.3,
+          "trades": 636,
+          "mdd": 4.6,
+          "sharpe": 3.91,
+          "sortino": 191.52,
+          "calmar": 6247.85,
+          "net_pnl": 2850994.73,
+          "return_pct": 28509.9,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "NEAR",
+      "tier": "tier_2",
+      "score": 77.7,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s2",
+        "s3"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 34.12,
+        "win_rate": 43.3,
+        "trades": 755,
+        "mdd": 4.3,
+        "sharpe": 4.44,
+        "sortino": 149.5,
+        "calmar": 8457.85,
+        "net_pnl": 3661459.52,
+        "return_pct": 36614.6,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -645.77,
+          "return_pct": -6.5,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 46.19,
+          "win_rate": 43.4,
+          "trades": 1046,
+          "mdd": 4.1,
+          "sharpe": 3.94,
+          "sortino": 222.48,
+          "calmar": 13107.46,
+          "net_pnl": 5400266.37,
+          "return_pct": 54002.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 34.95,
+          "win_rate": 44.4,
+          "trades": 1015,
+          "mdd": 4.9,
+          "sharpe": 4.79,
+          "sortino": 136.67,
+          "calmar": 9221.41,
+          "net_pnl": 4501488.01,
+          "return_pct": 45014.9,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 34.12,
+          "win_rate": 43.3,
+          "trades": 755,
+          "mdd": 4.3,
+          "sharpe": 4.44,
+          "sortino": 149.5,
+          "calmar": 8457.85,
+          "net_pnl": 3661459.52,
+          "return_pct": 36614.6,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "INJ",
+      "tier": "tier_2",
+      "score": 76.8,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 46.8,
+        "win_rate": 42.7,
+        "trades": 1083,
+        "mdd": 3.0,
+        "sharpe": 4.1,
+        "sortino": 168.5,
+        "calmar": 19686.51,
+        "net_pnl": 5892004.94,
+        "return_pct": 58920.0,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -609.78,
+          "return_pct": -6.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 46.8,
+          "win_rate": 42.7,
+          "trades": 1083,
+          "mdd": 3.0,
+          "sharpe": 4.1,
+          "sortino": 168.5,
+          "calmar": 19686.51,
+          "net_pnl": 5892004.94,
+          "return_pct": 58920.0,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.9,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -685.51,
+          "return_pct": -6.9,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -772.9,
+          "return_pct": -7.7,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "SUI",
+      "tier": "tier_2",
+      "score": 76.7,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 34.05,
+        "win_rate": 44.1,
+        "trades": 977,
+        "mdd": 3.7,
+        "sharpe": 3.41,
+        "sortino": 135.96,
+        "calmar": 11842.04,
+        "net_pnl": 4330808.09,
+        "return_pct": 43308.1,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 34.27,
+          "win_rate": 41.4,
+          "trades": 3172,
+          "mdd": 2.9,
+          "sharpe": 2.79,
+          "sortino": 219.79,
+          "calmar": 34967.55,
+          "net_pnl": 9981943.63,
+          "return_pct": 99819.4,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -540.28,
+          "return_pct": -5.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 34.05,
+          "win_rate": 44.1,
+          "trades": 977,
+          "mdd": 3.7,
+          "sharpe": 3.41,
+          "sortino": 135.96,
+          "calmar": 11842.04,
+          "net_pnl": 4330808.09,
+          "return_pct": 43308.1,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -876.44,
+          "return_pct": -8.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "POL",
+      "tier": "tier_2",
+      "score": 76.4,
+      "best_agent": "s3",
+      "best_agents": [
+        "s3",
+        "s4"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 30.83,
+        "win_rate": 42.9,
+        "trades": 864,
+        "mdd": 4.3,
+        "sharpe": 5.38,
+        "sortino": 140.3,
+        "calmar": 7955.48,
+        "net_pnl": 3444290.84,
+        "return_pct": 34442.9,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -564.12,
+          "return_pct": -5.6,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.53,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 30.83,
+          "win_rate": 42.9,
+          "trades": 864,
+          "mdd": 4.3,
+          "sharpe": 5.38,
+          "sortino": 140.3,
+          "calmar": 7955.48,
+          "net_pnl": 3444290.84,
+          "return_pct": 34442.9,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 8.63,
+          "win_rate": 23.1,
+          "trades": 13,
+          "mdd": 5.7,
+          "sharpe": 1.52,
+          "sortino": 64.09,
+          "calmar": 31.34,
+          "net_pnl": 17883.39,
+          "return_pct": 178.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "PROMPT",
+      "tier": "tier_2",
+      "score": 76.3,
+      "best_agent": "s4",
+      "best_agents": [
+        "s4",
+        "s3",
+        "s2"
+      ],
+      "days_tested": 318,
+      "metrics": {
+        "pf": 32.28,
+        "win_rate": 42.9,
+        "trades": 746,
+        "mdd": 2.3,
+        "sharpe": 2.36,
+        "sortino": 277.34,
+        "calmar": 22576.29,
+        "net_pnl": 4542588.12,
+        "return_pct": 45425.9,
+        "days": 318.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.15,
+          "net_pnl": -799.71,
+          "return_pct": -8.0,
+          "days": 318.0
+        },
+        "s2": {
+          "pf": 40.02,
+          "win_rate": 37.7,
+          "trades": 973,
+          "mdd": 1.8,
+          "sharpe": 2.03,
+          "sortino": 630.1,
+          "calmar": 36753.48,
+          "net_pnl": 5610855.34,
+          "return_pct": 56108.6,
+          "days": 318.0
+        },
+        "s3": {
+          "pf": 33.93,
+          "win_rate": 43.6,
+          "trades": 1068,
+          "mdd": 1.9,
+          "sharpe": 2.28,
+          "sortino": 366.52,
+          "calmar": 34988.26,
+          "net_pnl": 5768924.48,
+          "return_pct": 57689.2,
+          "days": 318.0
+        },
+        "s4": {
+          "pf": 32.28,
+          "win_rate": 42.9,
+          "trades": 746,
+          "mdd": 2.3,
+          "sharpe": 2.36,
+          "sortino": 277.34,
+          "calmar": 22576.29,
+          "net_pnl": 4542588.12,
+          "return_pct": 45425.9,
+          "days": 318.0
+        }
+      }
+    },
+    {
+      "symbol": "JUP",
+      "tier": "tier_2",
+      "score": 76.0,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1",
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 37.58,
+        "win_rate": 41.9,
+        "trades": 3244,
+        "mdd": 3.3,
+        "sharpe": 3.83,
+        "sortino": 364.76,
+        "calmar": 35090.17,
+        "net_pnl": 11695998.18,
+        "return_pct": 116960.0,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 37.58,
+          "win_rate": 41.9,
+          "trades": 3244,
+          "mdd": 3.3,
+          "sharpe": 3.83,
+          "sortino": 364.76,
+          "calmar": 35090.17,
+          "net_pnl": 11695998.18,
+          "return_pct": 116960.0,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 47.47,
+          "win_rate": 42.7,
+          "trades": 1070,
+          "mdd": 4.3,
+          "sharpe": 3.88,
+          "sortino": 176.47,
+          "calmar": 13603.59,
+          "net_pnl": 5893064.82,
+          "return_pct": 58930.6,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -636.73,
+          "return_pct": -6.4,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 6.9,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -688.13,
+          "return_pct": -6.9,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "ENA",
+      "tier": "tier_2",
+      "score": 75.7,
+      "best_agent": "s2",
+      "best_agents": [
+        "s2"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 50.2,
+        "win_rate": 44.3,
+        "trades": 1197,
+        "mdd": 4.3,
+        "sharpe": 3.92,
+        "sortino": 142.71,
+        "calmar": 16652.54,
+        "net_pnl": 7208556.06,
+        "return_pct": 72085.6,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -811.3,
+          "return_pct": -8.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 50.2,
+          "win_rate": 44.3,
+          "trades": 1197,
+          "mdd": 4.3,
+          "sharpe": 3.92,
+          "sortino": 142.71,
+          "calmar": 16652.54,
+          "net_pnl": 7208556.06,
+          "return_pct": 72085.6,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -566.39,
+          "return_pct": -5.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.2,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -623.94,
+          "return_pct": -6.2,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "LINK",
+      "tier": "tier_2",
+      "score": 75.2,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 32.17,
+        "win_rate": 40.4,
+        "trades": 2981,
+        "mdd": 3.3,
+        "sharpe": 4.02,
+        "sortino": 235.2,
+        "calmar": 24218.57,
+        "net_pnl": 8091203.03,
+        "return_pct": 80912.0,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 32.17,
+          "win_rate": 40.4,
+          "trades": 2981,
+          "mdd": 3.3,
+          "sharpe": 4.02,
+          "sortino": 235.2,
+          "calmar": 24218.57,
+          "net_pnl": 8091203.03,
+          "return_pct": 80912.0,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -774.65,
+          "return_pct": -7.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 5.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -557.59,
+          "return_pct": -5.6,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -535.97,
+          "return_pct": -5.4,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "XLM",
+      "tier": "excluded",
+      "score": 57.3,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 7.93,
+        "win_rate": 10.0,
+        "trades": 10,
+        "mdd": 5.9,
+        "sharpe": 0.93,
+        "sortino": 68.0,
+        "calmar": 22.04,
+        "net_pnl": 12965.21,
+        "return_pct": 129.7,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 7.93,
+          "win_rate": 10.0,
+          "trades": 10,
+          "mdd": 5.9,
+          "sharpe": 0.93,
+          "sortino": 68.0,
+          "calmar": 22.04,
+          "net_pnl": 12965.21,
+          "return_pct": 129.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -744.05,
+          "return_pct": -7.4,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 10.21,
+          "win_rate": 25.0,
+          "trades": 4,
+          "mdd": 5.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": 18.93,
+          "net_pnl": 9489.23,
+          "return_pct": 94.9,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 9.97,
+          "win_rate": 25.0,
+          "trades": 4,
+          "mdd": 5.3,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": 19.1,
+          "net_pnl": 10128.74,
+          "return_pct": 101.3,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "AVAX",
+      "tier": "excluded",
+      "score": 50.6,
+      "best_agent": "s1",
+      "best_agents": [
+        "s1"
+      ],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 12.1,
+        "win_rate": 22.2,
+        "trades": 9,
+        "mdd": 5.6,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "calmar": 35.02,
+        "net_pnl": 19567.47,
+        "return_pct": 195.7,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 12.1,
+          "win_rate": 22.2,
+          "trades": 9,
+          "mdd": 5.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": 35.02,
+          "net_pnl": 19567.47,
+          "return_pct": 195.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.61,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.85,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -547.39,
+          "return_pct": -5.5,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "ARB",
+      "tier": "excluded",
+      "score": 6.8,
+      "best_agent": "s3",
+      "best_agents": [],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 0.0,
+        "win_rate": 0.0,
+        "trades": 2,
+        "mdd": 5.5,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "calmar": -1.0,
+        "net_pnl": -552.38,
+        "return_pct": -5.5,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -807.89,
+          "return_pct": -8.1,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -579.11,
+          "return_pct": -5.8,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -552.38,
+          "return_pct": -5.5,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -575.3,
+          "return_pct": -5.8,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "SNX",
+      "tier": "excluded",
+      "score": 6.5,
+      "best_agent": "s1",
+      "best_agents": [],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 0.0,
+        "win_rate": 0.0,
+        "trades": 2,
+        "mdd": 5.7,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "calmar": -1.0,
+        "net_pnl": -570.5,
+        "return_pct": -5.7,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 5.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -570.5,
+          "return_pct": -5.7,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.87,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.8,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.8,
+          "return_pct": -6.7,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "STABLE",
+      "tier": "excluded",
+      "score": 6.0,
+      "best_agent": "s1",
+      "best_agents": [],
+      "days_tested": 109,
+      "metrics": {
+        "pf": 0.0,
+        "win_rate": 0.0,
+        "trades": 2,
+        "mdd": 6.0,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "calmar": -3.35,
+        "net_pnl": -602.73,
+        "return_pct": -6.0,
+        "days": 109.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 6.0,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -3.35,
+          "net_pnl": -602.73,
+          "return_pct": -6.0,
+          "days": 109.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 6.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -3.35,
+          "net_pnl": -656.77,
+          "return_pct": -6.6,
+          "days": 109.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 7.8,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -3.35,
+          "net_pnl": -781.92,
+          "return_pct": -7.8,
+          "days": 109.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 1,
+          "mdd": 9.1,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -3.35,
+          "net_pnl": -906.97,
+          "return_pct": -9.1,
+          "days": 109.0
+        }
+      }
+    },
+    {
+      "symbol": "SOL",
+      "tier": "excluded",
+      "score": 5.2,
+      "best_agent": "s2",
+      "best_agents": [],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 0.0,
+        "win_rate": 0.0,
+        "trades": 3,
+        "mdd": 6.5,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "calmar": -1.0,
+        "net_pnl": -648.92,
+        "return_pct": -6.5,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 8.4,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -841.49,
+          "return_pct": -8.4,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -648.92,
+          "return_pct": -6.5,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -669.14,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.5,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -648.92,
+          "return_pct": -6.5,
+          "days": 364.0
+        }
+      }
+    },
+    {
+      "symbol": "CRV",
+      "tier": "excluded",
+      "score": 5.1,
+      "best_agent": "s1",
+      "best_agents": [],
+      "days_tested": 365,
+      "metrics": {
+        "pf": 0.0,
+        "win_rate": 0.0,
+        "trades": 3,
+        "mdd": 6.6,
+        "sharpe": 0.0,
+        "sortino": 0.0,
+        "calmar": -1.0,
+        "net_pnl": -660.39,
+        "return_pct": -6.6,
+        "days": 364.0
+      },
+      "all_agents": {
+        "s1": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -660.39,
+          "return_pct": -6.6,
+          "days": 364.0
+        },
+        "s2": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.54,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s3": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 3,
+          "mdd": 6.7,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -670.68,
+          "return_pct": -6.7,
+          "days": 364.0
+        },
+        "s4": {
+          "pf": 0.0,
+          "win_rate": 0.0,
+          "trades": 2,
+          "mdd": 7.6,
+          "sharpe": 0.0,
+          "sortino": 0.0,
+          "calmar": -1.0,
+          "net_pnl": -762.88,
+          "return_pct": -7.6,
+          "days": 364.0
+        }
+      }
+    }
+  ]
+}

@@ -23,23 +23,36 @@ def _get_base_url() -> str:
     return constants.TESTNET_API_URL if IS_TESTNET else constants.MAINNET_API_URL
 
 
-def get_info_client(skip_ws: bool = True) -> Info:
-    """Create a read-only Info client."""
-    return Info(_get_base_url(), skip_ws=skip_ws)
+def get_info_client(skip_ws: bool = True, max_retries: int = 5) -> Info:
+    """Create a read-only Info client with retry on rate limit."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return Info(_get_base_url(), skip_ws=skip_ws)
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries:
+                wait = 2 ** attempt
+                logger.warning("Info client rate limited, retrying in %ds (%d/%d)", wait, attempt, max_retries)
+                time.sleep(wait)
+            else:
+                raise
 
 
-def get_exchange_client(private_key: str | None = None) -> Exchange | None:
+def get_exchange_client(
+    private_key: str | None = None,
+    account_address: str | None = None,
+) -> Exchange | None:
     """Create an Exchange client for order execution. Returns None if no key.
 
     Args:
         private_key: Hex private key. Falls back to global HYPERLIQUID_KEY if None.
+        account_address: Sub-account address for Hyperliquid sub-accounts.
     """
     key = private_key or HYPERLIQUID_KEY
     if not key:
         logger.warning("No HYPERLIQUID_KEY set, exchange client unavailable")
         return None
     wallet = eth_account.Account.from_key(key)
-    return Exchange(wallet, _get_base_url())
+    return Exchange(wallet, _get_base_url(), account_address=account_address)
 
 
 # ═══ Data Fetching ═══
@@ -50,14 +63,28 @@ def fetch_candles(
     interval: str,
     start_ms: int,
     end_ms: int | None = None,
+    max_retries: int = 3,
 ) -> list[dict]:
     """
-    Fetch OHLCV candles via REST.
+    Fetch OHLCV candles via REST with retry on rate limit.
     Returns list of dicts with keys: timestamp, open, high, low, close, volume.
     """
     if end_ms is None:
         end_ms = int(time.time() * 1000)
-    raw = info.candles_snapshot(symbol, interval, start_ms, end_ms)
+    raw = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            raw = info.candles_snapshot(symbol, interval, start_ms, end_ms)
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries:
+                wait = 2 ** attempt
+                logger.warning("fetch_candles rate limited (%s %s), retrying in %ds (%d/%d)", symbol, interval, wait, attempt, max_retries)
+                time.sleep(wait)
+            else:
+                raise
+    if raw is None:
+        return []
     candles = []
     for c in raw:
         candles.append({
@@ -71,6 +98,14 @@ def fetch_candles(
             "volume": float(c["v"]),
         })
     return candles
+
+
+def fetch_all_mids(info: Info) -> dict[str, float]:
+    """Fetch mid prices for all symbols. Returns {symbol: mid_price}."""
+    mids = info.all_mids()
+    if not mids:
+        return {}
+    return {k: float(v) for k, v in mids.items()}
 
 
 def fetch_asset_contexts(info: Info) -> dict[str, dict]:
@@ -182,9 +217,10 @@ def place_trigger_order(
     Place a TP or SL trigger order (reduce-only).
     tpsl: 'tp' or 'sl'
     """
+    trigger_price = round_price(trigger_price)
     order_type = {
         "trigger": {
-            "triggerPx": str(trigger_price),
+            "triggerPx": float(trigger_price),
             "isMarket": is_market,
             "tpsl": tpsl,
         }
@@ -220,6 +256,11 @@ def place_entry_with_sl_tp(
     Uses positionTpsl grouping for position-level TP/SL.
     """
     close_side = not is_buy
+    # Round all prices to 5 significant figures (Hyperliquid requirement)
+    limit_price = round_price(limit_price)
+    sl_price = round_price(sl_price)
+    tp_prices = [round_price(p) for p in tp_prices]
+
     orders = [
         {
             "coin": symbol,
@@ -236,7 +277,7 @@ def place_entry_with_sl_tp(
             "limit_px": sl_price,
             "order_type": {
                 "trigger": {
-                    "triggerPx": str(sl_price),
+                    "triggerPx": float(sl_price),
                     "isMarket": True,
                     "tpsl": "sl",
                 }
@@ -252,7 +293,7 @@ def place_entry_with_sl_tp(
             "limit_px": tp_px,
             "order_type": {
                 "trigger": {
-                    "triggerPx": str(tp_px),
+                    "triggerPx": float(tp_px),
                     "isMarket": True,
                     "tpsl": "tp",
                 }
@@ -278,7 +319,7 @@ def update_leverage(
     exchange: Exchange, symbol: str, leverage: int, is_cross: bool = True
 ) -> dict[str, Any]:
     """Update leverage for a symbol."""
-    return exchange.update_leverage(symbol, leverage, is_cross)
+    return exchange.update_leverage(leverage, symbol, is_cross)
 
 
 def get_user_state(info: Info, address: str) -> dict[str, Any]:
@@ -306,12 +347,79 @@ def fetch_wallet_balance(info: Info, address: str) -> float:
     except Exception:
         pass
 
+    # Unified accounts: spot includes held perp margin, don't double count
+    if spot_usdc > 0 and perp_value > 0:
+        return spot_usdc
     return perp_value + spot_usdc
 
 
 def get_open_orders(info: Info, address: str) -> list[dict]:
     """Get user's open orders."""
     return info.open_orders(address)
+
+
+def get_frontend_open_orders(info: Info, address: str) -> list[dict]:
+    """Get user's open orders including trigger (SL/TP) orders."""
+    return info.frontend_open_orders(address)
+
+
+# ═══ Asset Metadata Cache (szDecimals, maxLeverage) ═══
+
+_asset_meta_cache: dict[str, dict] = {}
+_asset_meta_ts: float = 0.0
+_ASSET_META_TTL = 3600  # Refresh every 1 hour
+
+
+def _refresh_asset_meta(info: Info | None = None) -> dict[str, dict]:
+    """Fetch and cache per-asset metadata (szDecimals, maxLeverage)."""
+    global _asset_meta_cache, _asset_meta_ts
+
+    now = time.time()
+    if _asset_meta_cache and (now - _asset_meta_ts) < _ASSET_META_TTL:
+        return _asset_meta_cache
+
+    if info is None:
+        info = get_info_client()
+
+    try:
+        meta = info.meta()
+        universe = meta.get("universe", [])
+        result = {}
+        for asset in universe:
+            name = asset.get("name", "")
+            if name:
+                result[name] = {
+                    "szDecimals": int(asset.get("szDecimals", 0)),
+                    "maxLeverage": int(asset.get("maxLeverage", 50)),
+                }
+        _asset_meta_cache = result
+        _asset_meta_ts = now
+        logger.debug("Asset meta cache refreshed: %d assets", len(result))
+    except Exception:
+        logger.warning("Failed to fetch asset meta", exc_info=True)
+
+    return _asset_meta_cache
+
+
+def round_price(price: float, sig_figs: int = 5) -> float:
+    """Round price to N significant figures (Hyperliquid requires max 5).
+
+    Caps decimal places so total significant figures never exceeds sig_figs.
+    """
+    import math
+    if price == 0:
+        return 0.0
+    decimals = max(0, sig_figs - 1 - int(math.floor(math.log10(abs(price)))))
+    return round(price, decimals)
+
+
+def round_size(symbol: str, size: float, info: Info | None = None) -> float:
+    """Round order size to the asset's szDecimals precision."""
+    meta = _refresh_asset_meta(info)
+    asset = meta.get(symbol, {})
+    decimals = asset.get("szDecimals", 0)
+    factor = 10 ** decimals
+    return int(size * factor) / factor  # Truncate (not round up)
 
 
 # ═══ Max Leverage Cache ═══

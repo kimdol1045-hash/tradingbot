@@ -405,16 +405,18 @@ def phase4_gate(
     size_mult *= exposure_mult
 
     # ━━━━ 4C: Technical scoring ━━━━
+    gate_params = params.get("gate", {})
     tech_score = _calculate_tech_score(candles, direction, regime_result, scan_result.atr)
 
     # ━━━━ 4D: Inflection/MTF bonus ━━━━
     inflection_bonus = 0.0
-    if scan_result.score >= 90:
-        inflection_bonus = 5.0
-    elif scan_result.score >= 80:
-        inflection_bonus = 3.0
-    elif scan_result.score < 70:
-        inflection_bonus = -5.0
+    if not gate_params.get("skip_inflection_bonus", False):
+        if scan_result.score >= 90:
+            inflection_bonus = 5.0
+        elif scan_result.score >= 80:
+            inflection_bonus = 3.0
+        elif scan_result.score < 70:
+            inflection_bonus = -5.0
 
     mtf_modifier = {"A": 3, "B": 2, "C": 1, "D": -1, "F": -3, "NONE": 0}
     mtf_bonus = mtf_modifier.get(scan_result.mtf_grade, 0)
@@ -427,7 +429,6 @@ def phase4_gate(
     final_score = max(0.0, min(raw_score, 100.0))
 
     # ━━━━ 4G: Pass threshold (dynamic) ━━━━
-    gate_params = params.get("gate", {})
     base_pass_scores = gate_params.get("base_pass_scores", {
         "STRONG_UPTREND": 40, "WEAK_UPTREND": 45, "SIDEWAYS": 50,
         "WEAK_DOWNTREND": 45, "STRONG_DOWNTREND": 40, "VOLATILE": 60,
@@ -447,6 +448,18 @@ def phase4_gate(
         pass_threshold = max(pass_threshold - 10, 45.0)
 
     passed = final_score >= pass_threshold
+
+    # ━━━━ 4H: Score-based size scaling ━━━━
+    # Higher gate score → larger position (0.5x ~ 1.5x)
+    if passed:
+        score_range = 95.0 - pass_threshold
+        if score_range > 0:
+            excess = final_score - pass_threshold
+            ratio = max(0.0, min(excess / score_range, 1.0))
+            score_scale = 0.5 + ratio * 1.0  # 0.5x ~ 1.5x
+        else:
+            score_scale = 1.0
+        size_mult *= score_scale
 
     return GateResult(
         passed=passed,

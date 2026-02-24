@@ -156,6 +156,12 @@ class ScreenerScheduler:
         added = list(new_set - old_set)
         logger.info("Symbol pool updated: %d symbols across %d tiers", len(new_all), len(reload_symbol_pool()))
 
+        # Unsubscribe removed symbols
+        removed = list(old_set - new_set)
+        if removed and self.collector:
+            logger.info("Removed symbols to unsubscribe: %s", removed)
+            await self.collector.remove_symbols(removed)
+
         # Subscribe collector to any new symbols
         if added and self.collector:
             logger.info("New symbols to subscribe: %s", added)

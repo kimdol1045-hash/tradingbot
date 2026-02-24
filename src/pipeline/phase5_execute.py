@@ -11,6 +11,7 @@ import logging
 import os
 import time
 
+from src.exchange.hyperliquid import round_price
 from src.pipeline.models import Signal
 from src.utils.config import EXPOSURE_LIMITS
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # ═══ Leverage Calculation ═══
 
-CONSECUTIVE_LOSS_DECAY = [1.0, 0.85, 0.65, 0.45, 0.25]
+CONSECUTIVE_LOSS_DECAY = [1.0, 0.90, 0.80, 0.70, 0.60]
 
 
 def _confidence_tier(confidence: float, thresholds: dict) -> str:
@@ -57,13 +58,11 @@ def calculate_leverage(
     tier = _confidence_tier(regime_result.confidence, conf_thresholds)
     lev = float(regime_row.get(tier, 1))
 
-    # Step 2: Inflection score adjustment
+    # Step 2: Inflection score adjustment (no penalty for <70, gate already filters)
     if scan_result.score >= 90:
         lev *= 1.25
     elif scan_result.score >= 80:
         lev *= 1.10
-    elif scan_result.score < 70:
-        lev *= 0.85
 
     # Step 3: Stage constraint
     if safety_result.stage == "STAGE_3":
@@ -78,19 +77,20 @@ def calculate_leverage(
         elif atr_ratio >= 1.5:
             lev *= 0.7
 
-    # Step 5: MDD multiplier
-    lev *= gate_result.leverage_mult
-
-    # Step 6: Consecutive loss decay
+    # Step 5+6: MDD and consecutive loss — apply strongest decay only (not both)
+    mdd_decay = gate_result.leverage_mult
     streak = agent_state.get("consecutive_losses", 0)
-    decay = CONSECUTIVE_LOSS_DECAY[min(streak, len(CONSECUTIVE_LOSS_DECAY) - 1)]
-    lev *= decay
+    loss_decay = CONSECUTIVE_LOSS_DECAY[min(streak, len(CONSECUTIVE_LOSS_DECAY) - 1)]
+    combined_decay = min(mdd_decay, loss_decay)
+    lev *= combined_decay
 
     # Step 7: AI Market Advisor multiplier (skip in survival/emergency)
     if gate_result.mdd_mode not in ("survival", "emergency"):
         lev *= agent_state.get("ai_leverage_mult", 1.0)
 
-    lev = max(1.0, min(lev, float(max_leverage)))
+    # Min 5x for futures (survival mode allows 3x)
+    min_lev = 5.0 if gate_result.mdd_mode != "survival" else 3.0
+    lev = max(min_lev, min(lev, float(max_leverage)))
     return round(lev, 1)
 
 
@@ -117,12 +117,17 @@ def calculate_stop_loss(
     if agent_state and mdd_mode not in ("survival", "emergency"):
         sl_atr_mult *= agent_state.get("ai_sl_mult", 1.0)
     max_loss_pct = exit_params.get("max_loss_pct", 0.02)
-    mdd_tighten = exit_params.get("mdd_tighten", {
-        "normal": 1.0, "caution": 0.85, "defensive": 0.7, "survival": 0.5,
+    # MDD SL adjustment: widen SL in caution/defensive (reduce leverage + wider SL = correct conservative approach)
+    mdd_sl_adjust = exit_params.get("mdd_sl_adjust", {
+        "normal": 1.0, "caution": 1.15, "defensive": 1.3, "survival": 1.0,
     })
 
+    # Minimum SL distance (% of entry price) — prevents excessively tight SL
+    min_sl_pct = exit_params.get("min_sl_pct", 0.015)  # default 1.5%
+    min_distance = entry_price * min_sl_pct
+
     # ATR-based raw SL
-    raw_distance = atr * sl_atr_mult
+    raw_distance = max(atr * sl_atr_mult, min_distance)
 
     # Check for nearby S/R levels
     for level in sr_levels:
@@ -137,15 +142,18 @@ def calculate_stop_loss(
                 raw_distance = min(raw_distance, sr_dist + atr * 0.1)
                 break
 
+    # Re-enforce minimum after S/R adjustment
+    raw_distance = max(raw_distance, min_distance)
+
     # ATR divergence override
     effective_atr = atr
     if safety_result.volatility_override:
         effective_atr = max(atr, safety_result.volatility_override * 0.7)
         raw_distance = max(raw_distance, effective_atr * sl_atr_mult)
 
-    # MDD tightening
-    tighten_mult = mdd_tighten.get(mdd_mode, 1.0)
-    sl_distance = raw_distance * tighten_mult
+    # MDD SL adjustment (widen in caution/defensive)
+    sl_adjust_mult = mdd_sl_adjust.get(mdd_mode, 1.0)
+    sl_distance = raw_distance * sl_adjust_mult
 
     # Calculate SL price
     if direction == "LONG":
@@ -160,7 +168,66 @@ def calculate_stop_loss(
     else:
         sl = min(sl, entry_price + max_dist)
 
-    return round(sl, 2)
+    return round_price(sl)
+
+
+# ═══ Dynamic RR Factor ═══
+
+
+def _compute_rr_factor(
+    direction: str,
+    regime: str,
+    confidence: float,
+    alignment: float,
+    scan_score: float,
+    mdd_mode: str,
+    consecutive_losses: int,
+) -> float:
+    """
+    Compute RR interpolation factor in [0.0, 1.0].
+
+    0.0 = conservative (use rr_range min), 1.0 = aggressive (use rr_range max).
+    Weighted combination of 6 sub-scores.
+    """
+    # 1. Regime-direction alignment (weight 0.30)
+    _REGIME_DIR = {
+        ("STRONG_UPTREND", "LONG"): 1.0,
+        ("STRONG_DOWNTREND", "SHORT"): 1.0,
+        ("WEAK_UPTREND", "LONG"): 0.6,
+        ("WEAK_DOWNTREND", "SHORT"): 0.6,
+        ("SIDEWAYS", "LONG"): 0.3,
+        ("SIDEWAYS", "SHORT"): 0.3,
+        ("VOLATILE", "LONG"): 0.3,
+        ("VOLATILE", "SHORT"): 0.3,
+    }
+    regime_score = _REGIME_DIR.get((regime, direction), 0.0)
+
+    # 2. Confidence (weight 0.15) — already 0.0–1.0
+    conf_score = max(0.0, min(1.0, confidence))
+
+    # 3. MTF alignment (weight 0.15) — already 0.0–1.0
+    mtf_score = max(0.0, min(1.0, alignment))
+
+    # 4. Scan score (weight 0.15) — map 60→0.0, 100→1.0
+    scan_s = max(0.0, min(1.0, (scan_score - 60) / 40))
+
+    # 5. MDD mode (weight 0.15)
+    _MDD_SCORES = {"normal": 1.0, "caution": 0.6, "defensive": 0.3, "survival": 0.0}
+    mdd_score = _MDD_SCORES.get(mdd_mode, 0.5)
+
+    # 6. Consecutive losses (weight 0.10) — 0→1.0, 1→0.8, 2→0.6, 3→0.4, 4+→0.2
+    _LOSS_SCORES = [1.0, 0.8, 0.6, 0.4, 0.2]
+    loss_score = _LOSS_SCORES[min(consecutive_losses, len(_LOSS_SCORES) - 1)]
+
+    rr_factor = (
+        0.30 * regime_score
+        + 0.15 * conf_score
+        + 0.15 * mtf_score
+        + 0.15 * scan_s
+        + 0.15 * mdd_score
+        + 0.10 * loss_score
+    )
+    return max(0.0, min(1.0, rr_factor))
 
 
 # ═══ Take Profit ═══
@@ -172,6 +239,7 @@ def calculate_take_profits(
     atr: float,
     pattern_target_atr: float | None,
     params: dict,
+    rr_factor: float = 0.5,
 ) -> list[dict]:
     """
     Calculate take profit levels based on RR ratios.
@@ -189,7 +257,7 @@ def calculate_take_profits(
     for i in range(1, tp_levels + 1):
         rr_key = f"tp{i}_rr"
         rr_range = exit_params.get(rr_key, [1.5 * i, 2.0 * i])
-        rr = (rr_range[0] + rr_range[1]) / 2  # Use midpoint
+        rr = rr_range[0] + rr_factor * (rr_range[1] - rr_range[0])
         tp_configs.append({"rr": rr, "ratio": split_ratios[i - 1] if i - 1 < len(split_ratios) else 0})
 
     # Adjust TP1 if pattern target is closer
@@ -208,7 +276,7 @@ def calculate_take_profits(
         else:
             price = entry_price - tp_distance
         tps.append({
-            "price": round(price, 2),
+            "price": round_price(price),
             "ratio": tp["ratio"],
             "rr": round(tp["rr"], 2),
         })
@@ -217,15 +285,6 @@ def calculate_take_profits(
 
 
 # ═══ Position Sizing ═══
-
-def _signal_quality_mult(confidence: float, inflection_score: float) -> float:
-    """Compute signal quality multiplier (0.5 ~ 1.5).
-
-    Blends regime confidence and inflection score equally.
-    quality=0 → 0.5x, quality=0.5 → 1.0x, quality=1.0 → 1.5x
-    """
-    quality = confidence * 0.5 + min(inflection_score / 100, 1.0) * 0.5
-    return round(0.5 + quality, 2)
 
 
 def calculate_position_size(
@@ -241,37 +300,19 @@ def calculate_position_size(
     inflection_score: float = 0.0,
 ) -> tuple[float, float, float]:
     """
-    Position sizing — three modes:
-      - "percent":  R = current_equity * risk_per_trade  (복리)
-      - "fixed":    R = fixed_risk_usd                   (고정값)
-      - "dynamic":  R = initial_capital * risk_per_trade * quality_mult  (단리 + 시그널 품질)
+    Margin-based position sizing.
+
+    margin = capital × margin_pct (고정 25%)
+    notional = margin × leverage
+    order_qty = notional / entry_price
 
     Returns (notional_usd, margin_usd, order_qty).
     """
-    exit_params = params.get("exit", {})
-    risk_mode = exit_params.get("risk_mode", "percent")
+    margin_pct = EXPOSURE_LIMITS.get("margin_pct_per_position", 0.25)
 
-    sl_pct = abs(entry_price - sl_price) / entry_price if entry_price > 0 else 0.01
-    if sl_pct < 0.0001:  # Floor at 1 bps to prevent division explosion
-        sl_pct = 0.01
-
-    # R = max loss in USD
-    if risk_mode == "dynamic":
-        base_capital = initial_capital if initial_capital > 0 else capital
-        risk_per_trade = exit_params.get("risk_per_trade", 0.01)
-        quality_mult = _signal_quality_mult(confidence, inflection_score)
-        r = base_capital * risk_per_trade * quality_mult * gate_result.size_mult
-    elif risk_mode == "fixed":
-        fixed_risk_usd = exit_params.get("fixed_risk_usd", 30.0)
-        r = fixed_risk_usd * gate_result.size_mult
-    else:
-        # Default "percent": compound (original behavior)
-        risk_per_trade = exit_params.get("risk_per_trade", 0.01)
-        r = capital * risk_per_trade * gate_result.size_mult
-
-    # Core formula: notional = R / sl_pct
-    notional_usd = r / sl_pct
-    margin_usd = notional_usd / leverage if leverage > 0 else notional_usd
+    # 고정 25% 마진 — MDD/gate 조정은 레버리지에서 처리
+    margin_usd = capital * margin_pct
+    notional_usd = margin_usd * leverage
     order_qty = notional_usd / entry_price if entry_price > 0 else 0
 
     return round(notional_usd, 2), round(margin_usd, 2), round(order_qty, 6)
@@ -329,12 +370,25 @@ def phase5_execute(
 
     # Clamp to exchange per-coin max leverage
     exchange_max_lev = agent_state.get("max_leverage_map", {}).get(symbol)
-    if exchange_max_lev and leverage > exchange_max_lev:
-        logger.debug("Clamping leverage %s: %.1f → %d (exchange limit)", symbol, leverage, exchange_max_lev)
-        leverage = float(exchange_max_lev)
+    if exchange_max_lev:
+        if leverage > exchange_max_lev:
+            logger.debug("Clamping leverage %s: %.1f → %d (exchange limit)", symbol, leverage, exchange_max_lev)
+            leverage = float(exchange_max_lev)
+        # Skip if exchange max leverage is below our minimum requirement
+        min_lev = 5.0 if gate_result.mdd_mode != "survival" else 3.0
+        if leverage < min_lev:
+            logger.info(
+                "[%s/%s] Exchange max leverage %dx < min %.0fx, skipping",
+                agent_id, symbol, exchange_max_lev, min_lev,
+            )
+            return None
 
     # ━━━━ 5B: Stop Loss ━━━━
-    atr = scan_result.atr
+    # Use 24h ATR (from runner) for SL — wider, more stable than 14-period 5m ATR
+    sl_atr_map = agent_state.get("sl_atr_map", {})
+    atr = sl_atr_map.get(symbol, scan_result.atr)
+    if atr <= 0:
+        atr = scan_result.atr  # fallback to scan ATR
     if atr <= 0:
         logger.debug("[%s/%s] ATR is zero, cannot compute SL", agent_id, symbol)
         return None
@@ -353,9 +407,19 @@ def phase5_execute(
         return None
 
     # ━━━━ 5C: Take Profits ━━━━
+    rr_factor = _compute_rr_factor(
+        direction=direction,
+        regime=regime_result.regime,
+        confidence=regime_result.confidence,
+        alignment=regime_result.alignment,
+        scan_score=scan_result.score,
+        mdd_mode=gate_result.mdd_mode,
+        consecutive_losses=agent_state.get("consecutive_losses", 0),
+    )
     tps = calculate_take_profits(
         direction, entry_price, sl, atr,
         scan_result.pattern_target_atr, params,
+        rr_factor=rr_factor,
     )
 
     if not tps:
@@ -363,21 +427,11 @@ def phase5_execute(
         return None
 
     # ━━━━ 5D: Position Sizing ━━━━
+    # margin = capital × 25% × size_mult, notional = margin × leverage
     capital = agent_state.get("capital", 10000)
     notional_usd, margin_usd, order_qty = calculate_position_size(
         entry_price, sl, leverage, capital, gate_result, params,
-        initial_capital=agent_state.get("initial_capital", capital),
-        confidence=regime_result.confidence,
-        inflection_score=scan_result.score,
     )
-
-    # Cap notional to prevent oversized positions (max 40% of capital per trade)
-    max_notional = capital * 0.40 * leverage
-    if max_notional > 0 and notional_usd > max_notional:
-        logger.debug("[%s/%s] Notional capped: $%.0f → $%.0f", agent_id, symbol, notional_usd, max_notional)
-        notional_usd = round(max_notional, 2)
-        margin_usd = round(notional_usd / leverage, 2) if leverage > 0 else notional_usd
-        order_qty = round(notional_usd / entry_price, 6) if entry_price > 0 else 0
 
     # ━━━━ 5E: Exposure & Risk Budget Checks ━━━━
 
@@ -398,7 +452,7 @@ def phase5_execute(
     max_per_symbol = EXPOSURE_LIMITS["max_positions_per_symbol"]
     symbol_count = agent_state.get("symbol_positions", {}).get(symbol, 0)
     if symbol_count >= max_per_symbol:
-        logger.info("Agent %s already has %d position(s) on %s", agent_id, symbol_count, symbol)
+        logger.debug("Agent %s already has %d position(s) on %s", agent_id, symbol_count, symbol)
         return None
 
     # 5E-3: Single-coin exposure check
@@ -412,23 +466,11 @@ def phase5_execute(
         )
         return None
 
-    # 5E-4: Open Risk Budget Check
-    exit_params = params.get("exit", {})
-    max_open_risk_pct = exit_params.get("max_open_risk_pct", 0.05)
-    sl_pct = abs(entry_price - sl) / entry_price if entry_price > 0 else 0.02
-    new_risk = notional_usd * sl_pct
-    current_risk = agent_state.get("open_risk", 0.0)
-    max_risk = capital * max_open_risk_pct
-
-    if current_risk + new_risk > max_risk:
-        available = max(max_risk - current_risk, 0)
-        if available < new_risk * 0.3:
-            logger.info("Open risk budget exhausted: %.2f + %.2f > %.2f", current_risk, new_risk, max_risk)
-            return None
-        reduction = available / new_risk
-        notional_usd = round(notional_usd * reduction, 2)
-        margin_usd = round(notional_usd / leverage, 2) if leverage > 0 else notional_usd
-        order_qty = round(notional_usd / entry_price, 6) if entry_price > 0 else 0
+    # 5E-4: Total margin usage check (에이전트 마진 합산 100% 초과 방지)
+    current_margin = agent_state.get("total_margin_used", 0.0)
+    if capital > 0 and (current_margin + margin_usd) / capital > 0.95:
+        logger.info("Agent %s margin near limit: $%.0f + $%.0f / $%.0f", agent_id, current_margin, margin_usd, capital)
+        return None
 
     ts = int(time.time() * 1000)
     signal_id = _generate_signal_id(agent_id, symbol, direction, ts)
@@ -456,4 +498,29 @@ def phase5_execute(
         mdd_mode=gate_result.mdd_mode,
         pattern_confirmations=confirmation_names,
         timestamp=ts,
+        phase_snapshot={
+            # Phase 1: Safety
+            "stage": safety_result.stage,
+            "mdd_mode": gate_result.mdd_mode,
+            "severity": safety_result.severity,
+            # Phase 2: Regime
+            "regime": regime_result.regime,
+            "regime_confidence": round(regime_result.confidence, 2),
+            "mtf_alignment": round(regime_result.alignment, 2),
+            # Phase 3: Scan
+            "scan_score": scan_result.score,
+            "primary_type": scan_result.primary_type,
+            "mtf_grade": scan_result.mtf_grade,
+            "atr": atr,
+            "confirmations": confirmation_names,
+            # Phase 4: Gate
+            "gate_score": gate_result.score,
+            "gate_threshold": gate_result.pass_threshold,
+            "gate_size_mult": gate_result.size_mult,
+            "rolling_pf": gate_result.rolling_pf,
+            # Phase 5: Execute
+            "rr_factor": round(rr_factor, 3),
+            "sl_pct": round(abs(entry_price - sl) / entry_price * 100, 2) if entry_price > 0 else 0,
+            "capital": capital,
+        },
     )

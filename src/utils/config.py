@@ -42,13 +42,16 @@ class WalletConfig:
     agent_id: str
     private_key: str
     wallet_address: str
+    sub_account_address: str = ""  # For Hyperliquid sub-accounts
 
 
 def get_wallet_configs() -> dict[str, WalletConfig]:
     """
     Load per-agent wallet configs from environment.
 
-    Checks HYPERLIQUID_KEY_S1~S4 first; falls back to global HYPERLIQUID_KEY.
+    Each agent has its own API key (HYPERLIQUID_KEY_Sx) from its own
+    Hyperliquid account. Falls back to global HYPERLIQUID_KEY.
+    Wallet address is derived from the key, or overridden by WALLET_ADDRESS_Sx.
     Returns {agent_id: WalletConfig}.
     """
     configs: dict[str, WalletConfig] = {}
@@ -65,11 +68,18 @@ def get_wallet_configs() -> dict[str, WalletConfig]:
         try:
             import eth_account  # lazy import for test compatibility
             wallet = eth_account.Account.from_key(key)
+            derived_address = wallet.address
+
+            # Use WALLET_ADDRESS_Sx for balance monitoring if set, else derived
+            env_addr = os.getenv(f"WALLET_ADDRESS_{agent_id.upper()}", "")
+            wallet_address = env_addr or derived_address
+
             configs[agent_id] = WalletConfig(
                 agent_id=agent_id,
                 private_key=key,
-                wallet_address=wallet.address,
+                wallet_address=wallet_address,
             )
+            _logger.info("Agent %s: %s...", agent_id, wallet_address[:12])
         except Exception:
             _logger.warning("Invalid key for agent %s (%s)", agent_id, env_var)
 
@@ -211,8 +221,8 @@ AGENT_PROFILES: dict[str, AgentProfile] = {
         agent_id="s1",
         timeframes=["5m"],
         capital_pct=0.25,
-        allowed_tiers=["tier_1"],
-        max_symbols=8,
+        allowed_tiers=["tier_1", "tier_2"],
+        max_symbols=12,
         max_open_risk_pct=0.03,
         description="Scalper (5m only)",
     ),
@@ -281,16 +291,11 @@ MDD_POLICIES: dict[str, dict] = {
         "allowed_regimes": ["STRONG_UPTREND", "STRONG_DOWNTREND"],
     },
     "survival": {
-        "range": [0.08, 0.10],
+        "range": [0.08, 1.00],
         "leverage_mult": 0.2,
         "size_mult": 0.3,
         "score_adj": 25,
         "max_positions": 1,
-    },
-    "emergency": {
-        "range": [0.10, 1.00],
-        "action": "CLOSE_ALL_AND_HALT",
-        "halt_hours": 24,
     },
 }
 
@@ -303,7 +308,7 @@ def get_mdd_mode(drawdown_pct: float) -> str:
         r = policy.get("range")
         if r and r[0] <= drawdown_pct < r[1]:
             return mode
-    return "emergency"
+    return "survival"
 
 
 # ═══ Cost Model ═══
@@ -327,8 +332,8 @@ COST_MODEL = {
 # ═══ Open Risk Budget ═══
 
 OPEN_RISK_PARAMS = {
-    "portfolio_max_open_risk_pct": 0.08,
-    "min_available_pct": 0.30,
+    "portfolio_max_open_risk_pct": 0.20,
+    "min_available_pct": 0.10,
 }
 
 # ═══ SQLite Config ═══
@@ -341,8 +346,9 @@ SQLITE_CONFIG = {
 # ═══ Exposure Limits ═══
 
 EXPOSURE_LIMITS = {
-    "max_positions_per_agent": 3,
+    "max_positions_per_agent": 4,
     "max_positions_per_symbol": 1,
-    "max_portfolio_positions": 8,
-    "max_single_coin_exposure_pct": 0.30,
+    "max_portfolio_positions": 16,
+    "max_single_coin_exposure_pct": 0.50,
+    "margin_pct_per_position": 0.25,
 }

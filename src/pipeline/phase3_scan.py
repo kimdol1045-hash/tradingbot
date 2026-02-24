@@ -244,11 +244,11 @@ def phase3_scan(
     )
 
     # ━━━━ 3E: Candlestick Patterns ━━━━
-    use_candlestick = params.get("pattern_policy", {}).get("candlestick", True)
+    use_candlestick = params.get("pattern_policy", {}).get("candlestick_enabled", True)
     candlestick_pats = detect_candlestick_patterns(candles) if use_candlestick else []
 
     # ━━━━ 3F: Chart Patterns ━━━━
-    use_chart = params.get("pattern_policy", {}).get("chart_pattern", False)
+    use_chart = params.get("pattern_policy", {}).get("chart_pattern_enabled", False)
     chart_pats = detect_chart_patterns(candles, atr_val) if use_chart else []
 
     # ━━━━ 3G: MTF Grade ━━━━
@@ -263,13 +263,19 @@ def phase3_scan(
     # Minimum score check — adaptive by regime
     # Trending regimes: patterns are more reliable → lower threshold
     # Volatile/sideways: need more confirmation → higher threshold
-    regime_min_scores = {
+    default_regime_min = {
         "STRONG_UPTREND": 20, "WEAK_UPTREND": 25, "SIDEWAYS": 30,
         "WEAK_DOWNTREND": 25, "STRONG_DOWNTREND": 20, "VOLATILE": 40,
     }
+    regime_min_scores = scan_params.get("regime_min_scores", default_regime_min)
     default_min = scan_params.get("min_score", 25)
     min_score = regime_min_scores.get(regime, default_min)
     found = score >= min_score and primary_type is not None
+
+    # T5 POC + SIDEWAYS filter: historically 0% win rate in sideways regime
+    if found and primary_type == "T5_POC_MAGNET" and regime == "SIDEWAYS":
+        found = False
+        logger.info("T5_POC_MAGNET blocked in SIDEWAYS regime (data-driven filter)")
 
     # Build pattern result
     pattern_target_atr = None
@@ -296,10 +302,31 @@ def phase3_scan(
             tier=0, score=pat["score"],
         ))
 
+    # Compute actual synergy bonus (secondary inflections + pattern bonuses, capped)
+    actual_synergy = 0.0
+    if inflections and direction:
+        primary_inf = inflections[0]
+        for inf in inflections[1:]:
+            if inf["direction"] == direction:
+                combo_key = (primary_inf["type"], inf["type"])
+                combo_bonus = SYNERGY_COMBOS.get(combo_key, 0)
+                if combo_bonus == 0:
+                    combo_key = (inf["type"], primary_inf["type"])
+                    combo_bonus = SYNERGY_COMBOS.get(combo_key, 0)
+                actual_synergy += combo_bonus
+        for pat in candlestick_pats:
+            if pat["direction"] == direction or pat["direction"] == "NEUTRAL":
+                tier_key = f"tier_{pat['tier']}"
+                actual_synergy += CANDLESTICK_SYNERGY.get(tier_key, 0)
+        for pat in chart_pats:
+            if pat["direction"] == direction:
+                actual_synergy += 15
+        actual_synergy = min(actual_synergy, PATTERN_BONUS_CAP)
+
     patterns = PatternResult(
         candlestick=candlestick_pats,
         chart=chart_pats,
-        synergy_bonus=0.0,
+        synergy_bonus=actual_synergy,
         confirmation_names=confirmation_names,
     )
 

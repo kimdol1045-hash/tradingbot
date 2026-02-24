@@ -182,6 +182,19 @@ async def _send_message(
 
 # ── signals 토픽: 신규 시그널 ──
 
+def _fmt_price(price: float) -> str:
+    """Format price with appropriate decimal places based on magnitude."""
+    if price == 0:
+        return "$0"
+    if price >= 1000:
+        return f"${price:,.2f}"
+    if price >= 1:
+        return f"${price:.4f}"
+    if price >= 0.01:
+        return f"${price:.6f}"
+    return f"${price:.8f}"
+
+
 async def notify_signal(signal) -> bool:
     """신규 매매 시그널 알림."""
     try:
@@ -189,24 +202,45 @@ async def notify_signal(signal) -> bool:
         arrow = "📈" if signal.direction == "LONG" else "📉"
         sl_pct = abs(signal.entry_price - signal.stop_loss) / signal.entry_price * 100 if signal.entry_price else 0
 
+        lev = signal.leverage or 1
         tps = ""
         for i, tp in enumerate(signal.take_profits):
             rr = tp.get("rr", 0)
-            tps += f"\n  ├ TP{i+1}: ${tp.get('price', 0):,.2f} (RR {rr:.1f}x)"
+            tp_p = tp.get("price", 0)
+            tp_pct = abs(tp_p - signal.entry_price) / signal.entry_price * 100 if signal.entry_price else 0
+            tp_roe = tp_pct * lev
+            tps += f"\n  ├ TP{i+1}: {_fmt_price(tp_p)} (+{tp_roe:.2f}% ROE, {tp_pct:.2f}%, RR {rr:.1f}x)"
+
+        # Phase snapshot details
+        ps = signal.phase_snapshot or {}
+        pipeline_info = (
+            f"<b>[파이프라인]</b>\n"
+            f"P1 Safety: {ps.get('stage', '?')} | MDD: {ps.get('mdd_mode', '?')}\n"
+            f"P2 Regime: {ps.get('regime', '?')} ({ps.get('regime_confidence', 0):.0%}) | MTF: {ps.get('mtf_alignment', 0):.0%}\n"
+            f"P3 Scan: {ps.get('primary_type', '?')} ({ps.get('scan_score', 0):.0f}점) | MTF등급: {ps.get('mtf_grade', '?')}\n"
+            f"P4 Gate: {ps.get('gate_score', 0):.0f}/{ps.get('gate_threshold', 0):.0f} | PF: {ps.get('rolling_pf', 0):.1f}\n"
+            f"P5 Execute: SL {sl_pct:.2f}% | Lev {signal.leverage}x | RR팩터 {ps.get('rr_factor', 0.5):.2f} | ${signal.notional_usd:,.0f}"
+        )
+
+        # Confirmations
+        confirms = ""
+        confirmations = ps.get("confirmations") or signal.pattern_confirmations
+        if confirmations:
+            confirms = f"\n보조지표: {', '.join(confirmations[:5])}"
 
         text = (
             f"{emoji} <b>시그널 발생</b> {arrow}\n"
             f"━━━━━━━━━━━━━━━\n"
             f"에이전트: <code>{signal.agent_id}</code>\n"
             f"코인: <b>{signal.symbol}</b> | 방향: <b>{signal.direction}</b>\n"
-            f"진입가: ${signal.entry_price:,.2f}\n"
-            f"손절가: ${signal.stop_loss:,.2f} ({sl_pct:.2f}%)\n"
+            f"진입가: {_fmt_price(signal.entry_price)}\n"
+            f"손절가: {_fmt_price(signal.stop_loss)} (-{sl_pct * lev:.2f}% ROE, {sl_pct:.2f}%)\n"
             f"레버리지: {signal.leverage}x\n"
-            f"포지션: ${signal.notional_usd:,.0f}"
+            f"포지션: ${signal.notional_usd:,.0f} (마진 ${signal.margin_usd:,.0f})"
             f"{tps}\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"패턴: {signal.inflection_type} ({signal.inflection_score:.0f}점)\n"
-            f"시장: {signal.regime} | MDD: {signal.mdd_mode}"
+            f"{pipeline_info}"
+            f"{confirms}"
         )
         return await _send_message(text, topic="signals")
     except Exception:
@@ -220,15 +254,38 @@ async def notify_fill(signal, fill_price: float, order_id: str) -> bool:
     """주문 체결 알림."""
     try:
         emoji = "🟢" if signal.direction == "LONG" else "🔴"
+
+        # SL/TP info
+        entry = fill_price or signal.entry_price
+        lev = signal.leverage or 1
+        sl_pct = abs(entry - signal.stop_loss) / entry * 100 if entry and signal.stop_loss else 0
+        sl_roe = sl_pct * lev
+        sl_line = f"손절(SL): {_fmt_price(signal.stop_loss)} (-{sl_roe:.2f}% ROE, {sl_pct:.2f}%)" if signal.stop_loss else ""
+        tp_lines = ""
+        if signal.take_profits:
+            for i, tp in enumerate(signal.take_profits, 1):
+                tp_price = tp.get("price", 0)
+                tp_rr = tp.get("rr", 0)
+                tp_ratio = tp.get("ratio", 0)
+                tp_pct = abs(tp_price - entry) / entry * 100 if entry else 0
+                tp_roe = tp_pct * lev
+                tp_lines += f"익절(TP{i}): {_fmt_price(tp_price)} (+{tp_roe:.2f}% ROE, {tp_pct:.2f}%, RR {tp_rr:.1f}, {tp_ratio}%)\n"
+            tp_lines = tp_lines.rstrip("\n")
+
         text = (
             f"✅ <b>체결 완료</b>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"에이전트: <code>{signal.agent_id}</code>\n"
             f"{emoji} {signal.direction} <b>{signal.symbol}</b>\n"
-            f"체결가: ${fill_price:,.2f}\n"
+            f"체결가: {_fmt_price(fill_price)}\n"
             f"레버리지: {signal.leverage}x | 사이즈: ${signal.notional_usd:,.0f}\n"
-            f"주문ID: <code>{order_id[:16]}</code>"
         )
+        if sl_line:
+            text += f"{sl_line}\n"
+        if tp_lines:
+            text += f"{tp_lines}\n"
+        text += f"주문ID: <code>{order_id[:16]}</code>"
+
         return await _send_message(text, topic="fills")
     except Exception:
         logger.warning("notify_fill failed", exc_info=True)
@@ -236,6 +293,39 @@ async def notify_fill(signal, fill_price: float, order_id: str) -> bool:
 
 
 # ── exits 토픽: 포지션 청산 ──
+
+async def notify_tp_hit(signal, tp_level: int, tp_price: float, current_price: float, ratio: int, close_qty: float = 0, pnl: float = 0) -> bool:
+    """TP 레벨 도달 알림 (부분 익절)."""
+    try:
+        emoji = "🎯"
+        entry = signal.entry_price or 0
+        if entry > 0:
+            pct = (tp_price - entry) / entry * 100
+            if signal.direction == "SHORT":
+                pct = -pct
+            roe = pct * signal.leverage
+        else:
+            pct = 0
+            roe = 0
+
+        pnl_emoji = "🟢" if pnl >= 0 else "🔴"
+        text = (
+            f"{emoji} <b>TP{tp_level} 도달</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"에이전트: <code>{signal.agent_id}</code>\n"
+            f"{signal.direction} <b>{signal.symbol}</b> {signal.leverage}x\n"
+            f"진입: {_fmt_price(entry)} → TP{tp_level}: {_fmt_price(tp_price)}\n"
+            f"현재가: {_fmt_price(current_price)}\n"
+            f"ROE: <b>{roe:+.1f}%</b> ({pct:+.2f}%) | 청산비중: {ratio}%\n"
+            f"{pnl_emoji} PnL: <b>${pnl:+.2f}</b> (수량: {close_qty:.4f})"
+        )
+        if tp_level == 1:
+            text += "\n📌 트레일링 스탑 활성화"
+        return await _send_message(text, topic="exits")
+    except Exception:
+        logger.warning("notify_tp_hit failed", exc_info=True)
+        return False
+
 
 async def notify_exit(signal, close_price: float, pnl: float, reason: str) -> bool:
     """포지션 청산 알림 (PnL 포함)."""
@@ -250,23 +340,34 @@ async def notify_exit(signal, close_price: float, pnl: float, reason: str) -> bo
         pnl_pct = ((close_price - signal.entry_price) / signal.entry_price * 100) if signal.entry_price else 0
         if signal.direction == "SHORT":
             pnl_pct = -pnl_pct
+        roe = pnl_pct * signal.leverage if hasattr(signal, 'leverage') and signal.leverage else pnl_pct
 
         reason_kr = {
-            "TRAILING_SL": "트레일링 손절",
-            "TIMEOUT": "시간 초과",
-            "TP_HIT": "익절 도달",
-            "SL_HIT": "손절 도달",
-            "EMERGENCY": "긴급 청산",
+            "TRAILING_SL": "가격추적 자동청산",
+            "TIMEOUT": "보유시간 초과",
+            "TP_HIT": "목표가 도달",
+            "SL_HIT": "손절가 도달",
+            "EMERGENCY": "긴급 전량 청산",
             "MANUAL": "수동 청산",
+            "MDD_EMERGENCY": "MDD 긴급 청산",
         }.get(reason, reason)
 
+        # Distinguish actual loss vs breakeven/profit closings
+        if pnl > 0:
+            header = "포지션 종료 — 수익"
+        elif pnl == 0 or abs(pnl_pct) < 0.1:
+            header = "포지션 종료 — 본전"
+        else:
+            header = "포지션 종료 — 손실"
+
+        lev_str = f" {signal.leverage}x" if hasattr(signal, 'leverage') and signal.leverage else ""
         text = (
-            f"{emoji} <b>청산 — {result}</b>\n"
+            f"{emoji} <b>{header}</b>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"에이전트: <code>{signal.agent_id}</code>\n"
-            f"{signal.direction} <b>{signal.symbol}</b>\n"
-            f"진입: ${signal.entry_price:,.2f} → 청산: ${close_price:,.2f}\n"
-            f"PnL: <b>${pnl:+,.2f}</b> ({pnl_pct:+.1f}%)\n"
+            f"{signal.direction} <b>{signal.symbol}</b>{lev_str}\n"
+            f"진입: {_fmt_price(signal.entry_price)} → 종료: {_fmt_price(close_price)}\n"
+            f"PnL: <b>${pnl:+,.2f}</b> ({pnl_pct:+.2f}%) | ROE: <b>{roe:+.1f}%</b>\n"
             f"사유: {reason_kr}"
         )
         return await _send_message(text, topic="exits")
@@ -319,35 +420,212 @@ async def notify_error(error_msg: str, context: str = "") -> bool:
 
 async def notify_daily_report(report: dict) -> bool:
     """일일 성과 리포트."""
+    from datetime import datetime, timedelta, timezone
+    kst = timezone(timedelta(hours=9))
+    date_str = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
+
     pnl = report.get("total_pnl", 0)
     emoji = "📈" if pnl >= 0 else "📉"
     pf = report.get("profit_factor", 0)
     pf_str = f"{pf:.2f}" if isinstance(pf, (int, float)) and pf < 99 else "∞"
     wr = report.get("win_rate", 0)
+    roi = report.get("roi_pct", 0)
+    initial = report.get("initial_capital", 0)
+    equity = report.get("equity", 0)
 
     lines = [
-        f"{emoji} <b>일일 리포트</b>",
-        "━━━━━━━━━━━━━━━",
-        f"총 PnL: <b>${pnl:+,.2f}</b>",
-        f"총 거래: {report.get('total_trades', 0)}건 (승 {report.get('wins', 0)} / 패 {report.get('losses', 0)})",
-        f"승률: {wr:.1%} | PF: {pf_str}",
-        f"MDD: {report.get('mdd', 0):.2%}",
-        f"총 자산: ${report.get('equity', 0):,.2f}",
+        f"{emoji} <b>일일 리포트</b>  <code>{date_str}</code>",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "<b>📊 포트폴리오 요약</b>",
+        f"  초기자본: ${initial:,.2f} → 현재: <b>${equity:,.2f}</b>",
+        f"  총 PnL: <b>${pnl:+,.2f}</b> (ROI: {roi:+.2f}%)",
+        f"  MDD: {report.get('mdd', 0):.2%} | 마진사용: ${report.get('margin_used', 0):,.2f}",
     ]
 
-    # Per-agent breakdown (limit to avoid exceeding 4096 chars)
+    unrealized = report.get("unrealized_pnl", 0)
+    if unrealized != 0:
+        lines.append(f"  미실현 PnL: ${unrealized:+,.2f}")
+
+    total_trades = report.get("total_trades", 0)
+    lines.append("")
+    lines.append("<b>📋 거래 성과</b>")
+    lines.append(
+        f"  거래: {total_trades}건 (승 {report.get('wins', 0)} / 패 {report.get('losses', 0)})"
+    )
+    lines.append(f"  승률: {wr:.1%} | PF: {pf_str}")
+
+    best = report.get("best_trade", 0)
+    worst = report.get("worst_trade", 0)
+    if best > 0 or worst < 0:
+        lines.append(f"  최고: <b>${best:+,.2f}</b> | 최저: ${worst:+,.2f}")
+
+    # TP hit statistics
+    tp = report.get("tp_stats", {})
+    if tp.get("total", 0) > 0:
+        lines.append("")
+        lines.append("<b>🎯 TP 도달 통계</b>")
+        lines.append(
+            f"  TP1: {tp['tp1']}/{tp['total']} ({tp['tp1_pct']}%) | "
+            f"TP2: {tp['tp2']}/{tp['total']} ({tp['tp2_pct']}%) | "
+            f"TP3: {tp['tp3']}/{tp['total']} ({tp['tp3_pct']}%)"
+        )
+
+    # Per-agent breakdown
     agents = report.get("agents", {})
     if agents:
         lines.append("")
-        lines.append("<b>에이전트별</b>")
+        lines.append("<b>🤖 에이전트별</b>")
         for aid, a in sorted(agents.items()):
-            eq = a.get("equity", 0)
+            a_pnl = a.get("pnl", 0)
+            a_roi = a.get("roi", 0)
+            a_emoji = "🟢" if a_pnl >= 0 else "🔴"
+            streak = a.get("streak", 0)
+            streak_str = f" 🔥{streak}연패" if streak >= 3 else ""
             lines.append(
-                f"  {aid}: ${eq:,.2f} | MDD {a.get('mdd', 0):.1%} | "
-                f"{a.get('trades', 0)}건 | PF {a.get('pf', 0):.2f}"
+                f"  {a_emoji} <b>{aid}</b>: ${a.get('equity', 0):,.2f} "
+                f"({a_roi:+.1f}%)"
+            )
+            lines.append(
+                f"     {a.get('wins', 0)}승 {a.get('losses', 0)}패 | "
+                f"PF {a.get('pf', 0):.2f} | MDD {a.get('mdd', 0):.1%}{streak_str}"
             )
 
+    # Deep analysis — parameter tuning insights
+    da = report.get("deep_analysis", {})
+    if da:
+        insights = _generate_deep_insights(report, da, tp)
+        if insights:
+            lines.append("")
+            lines.append("<b>🔬 매매 분석 + 조정 제안</b>")
+            lines.append(insights)
+
     return await _send_message("\n".join(lines), topic="daily_report")
+
+
+_PATTERN_NAMES = {
+    "T1_SR_REACTION": "T1 S/R",
+    "T2_TRENDLINE_REACTION": "T2 추세선",
+    "T3_BREAKOUT_RETEST": "T3 리테스트",
+    "T4_TRENDLINE_BREAK": "T4 돌파",
+    "T5_POC_MAGNET": "T5 POC",
+    "T6_DIVERGENCE": "T6 다이버전스",
+    "T7_VOLUME_EXPLOSION": "T7 거래량",
+    "T8_FUNDING_OI": "T8 펀딩/OI",
+}
+
+
+def _generate_deep_insights(report: dict, da: dict, tp_stats: dict) -> str:
+    """Generate actionable parameter tuning insights from deep analysis."""
+    notes: list[str] = []
+    total_trades = report.get("total_trades", 0)
+    if total_trades < 3:
+        return "  • 거래 수 부족 (3건 미만) — 데이터 축적 후 분석 가능"
+
+    # ── 1. 손절 비율 분석 ──
+    exit_reasons = da.get("exit_reasons", {})
+    total_exits = sum(exit_reasons.values()) or 1
+    sl_count = exit_reasons.get("SL_HIT", 0)
+    sl_rate = sl_count / total_exits * 100
+    if sl_rate > 60:
+        notes.append(
+            f"<b>손절 비율 {sl_rate:.0f}%</b> — SL ATR 배수(sl_atr_mult) 확대 "
+            f"또는 진입 정확도 개선 필요"
+        )
+    elif sl_rate < 25 and total_exits >= 5:
+        notes.append(
+            f"손절 비율 {sl_rate:.0f}%로 낮음 — SL을 타이트하게 조여 RR 개선 여지"
+        )
+
+    # ── 2. 보유시간 분석 ──
+    ht = da.get("hold_time", {})
+    avg_win_min = ht.get("avg_min_win", 0)
+    avg_loss_min = ht.get("avg_min_loss", 0)
+    if avg_loss_min > 0 and avg_loss_min < 10:
+        notes.append(
+            f"손실 거래 평균 {avg_loss_min:.0f}분 보유 — "
+            f"진입 직후 반전 빈번, 진입 타이밍/gate 기준 상향 검토"
+        )
+    if avg_win_min > 0 and avg_loss_min > 0:
+        notes.append(
+            f"보유시간: 수익 평균 {avg_win_min:.0f}분 vs 손실 평균 {avg_loss_min:.0f}분"
+        )
+
+    # ── 3. SL 거리 분석 ──
+    sl_a = da.get("sl_analysis", {})
+    sl_win = sl_a.get("avg_sl_win", 0)
+    sl_loss = sl_a.get("avg_sl_loss", 0)
+    if sl_loss > 0 and sl_win > 0 and sl_loss < sl_win * 0.7:
+        notes.append(
+            f"손실 거래 SL 거리 {sl_loss:.2f}% vs 수익 {sl_win:.2f}% — "
+            f"손실 시 SL이 타이트, min_sl_pct 상향 고려"
+        )
+
+    # ── 4. Gate score 구간별 승률 ──
+    gate_bins = da.get("gate_bins", [])
+    for gb in gate_bins:
+        if gb["total"] >= 3 and gb["wr"] < 30:
+            notes.append(
+                f"Gate {gb['bin']}점 구간 승률 {gb['wr']}% ({gb['total']}건) — "
+                f"해당 구간 통과 기준(pass_threshold) 상향 권장"
+            )
+
+    # ── 5. 패턴별 분석 ──
+    patterns = da.get("patterns", [])
+    for p in patterns:
+        name = _PATTERN_NAMES.get(p["type"], p["type"])
+        if p["total"] >= 3 and p["sl_rate"] > 70:
+            notes.append(
+                f"{name} 손절률 {p['sl_rate']}% ({p['total']}건) — "
+                f"해당 패턴 가중치 하향 또는 추가 확인 조건 필요"
+            )
+        if p["total"] >= 3 and p["wr"] >= 70:
+            notes.append(
+                f"{name} 승률 {p['wr']}% ({p['total']}건, ${p['pnl']:+.2f}) — 강점 패턴"
+            )
+        # Gate score 차이: 승리 vs 패배
+        gw = p.get("avg_gate_win")
+        gl = p.get("avg_gate_loss")
+        if gw and gl and p["total"] >= 5 and gw - gl > 10:
+            notes.append(
+                f"{name} gate 점수: 승리 {gw:.0f} vs 패배 {gl:.0f} — "
+                f"점수 {gl:.0f} 이하 진입 차단 시 승률 개선 가능"
+            )
+
+    # ── 6. 레짐×방향 콤보 ──
+    regime_dir = da.get("regime_dir", [])
+    for rd in regime_dir:
+        if rd["total"] >= 3 and rd["wr"] < 25:
+            notes.append(
+                f"{rd['regime']}+{rd['side']} 승률 {rd['wr']}% ({rd['total']}건) — "
+                f"역추세 진입 차단 또는 gate 기준 대폭 상향"
+            )
+
+    # ── 7. TP 도달률 ──
+    tp1_pct = tp_stats.get("tp1_pct", 0)
+    tp_total = tp_stats.get("total", 0)
+    if tp_total >= 5:
+        if tp1_pct < 30:
+            notes.append(
+                f"TP1 도달률 {tp1_pct}% — SL 너무 타이트하거나 RR 목표 과도, "
+                f"tp1_rr 하향 검토"
+            )
+        elif tp1_pct >= 60:
+            notes.append(f"TP1 도달률 {tp1_pct}% 우수 — 진입 정확도 양호")
+
+    # ── 8. 전반적 상태 ──
+    mdd = report.get("mdd", 0)
+    if mdd > 0.08:
+        notes.append(f"MDD {mdd:.1%} 주의 — 레버리지/사이즈 축소 검토")
+
+    unrealized = report.get("unrealized_pnl", 0)
+    if unrealized < -5:
+        notes.append(f"미실현 손실 ${unrealized:.2f} — SL 도달 전 추가 하락 주의")
+
+    if not notes:
+        notes.append("특이사항 없음. 현재 파라미터 유지.")
+
+    return "\n".join(f"  • {n}" for n in notes)
 
 
 # ── system 토픽: 시스템 메시지 ──
@@ -526,19 +804,44 @@ class TelegramChatHandler:
         pm = self._components.get("position_manager")
         if pm:
             open_pos = pm.get_open_positions()
+            # Get current prices for ROE calculation
+            current_prices: dict[str, float] = {}
+            if pm.candle_cache:
+                for pos in open_pos:
+                    sym = pos.signal.symbol
+                    if sym not in current_prices:
+                        candle = pm.candle_cache.latest(sym, "5m")
+                        if candle:
+                            current_prices[sym] = candle["close"]
+
             data["open_positions"] = []
             for pos in open_pos:
                 sig = pos.signal
                 elapsed_min = (time.time() * 1000 - pos.filled_ts) / 60000 if pos.filled_ts else 0
+                entry = pos.fill_price or sig.entry_price
+                current = current_prices.get(sig.symbol, 0)
+                # ROE = (price change % × leverage)
+                if entry > 0 and current > 0:
+                    pct = (current - entry) / entry
+                    if sig.direction == "SHORT":
+                        pct = -pct
+                    roe = pct * sig.leverage * 100
+                    upnl = pct * sig.notional_usd
+                else:
+                    roe = 0.0
+                    upnl = 0.0
                 data["open_positions"].append({
                     "agent_id": sig.agent_id,
                     "symbol": sig.symbol,
                     "direction": sig.direction,
-                    "entry_price": pos.fill_price,
+                    "entry_price": entry,
+                    "current_price": current,
                     "stop_loss": sig.stop_loss,
                     "leverage": sig.leverage,
                     "notional_usd": sig.notional_usd,
                     "elapsed_min": round(elapsed_min),
+                    "roe_pct": round(roe, 2),
+                    "upnl_usd": round(upnl, 2),
                 })
 
         # System status
@@ -657,16 +960,24 @@ class TelegramChatHandler:
             return "\n".join(lines)
 
         # Position query
-        if any(kw in text for kw in ["포지션", "position", "열려", "오픈"]):
+        if any(kw in text for kw in ["포지션", "position", "열려", "오픈", "roe", "수익률"]):
             positions = data.get("open_positions", [])
             if not positions:
                 return "📊 오픈 포지션 없어요."
-            lines = [f"📊 <b>오픈 포지션 ({len(positions)}건)</b>", ""]
+            total_upnl = sum(p.get("upnl_usd", 0) for p in positions)
+            lines = [f"📊 <b>오픈 포지션 ({len(positions)}건)</b> | 미실현 PnL: <b>${total_upnl:+,.2f}</b>", ""]
             for p in positions:
                 emoji = "🟢" if p["direction"] == "LONG" else "🔴"
+                roe = p.get("roe_pct", 0)
+                upnl = p.get("upnl_usd", 0)
+                roe_emoji = "📈" if roe >= 0 else "📉"
+                current = p.get("current_price", 0)
+                current_str = f"${current:,.4f}" if current < 1 else f"${current:,.2f}"
+                entry_str = f"${p['entry_price']:,.4f}" if p['entry_price'] < 1 else f"${p['entry_price']:,.2f}"
                 lines.append(
-                    f"{emoji} {p['agent_id']} | {p['symbol']} {p['direction']}\n"
-                    f"  진입 ${p['entry_price']:,.2f} | {p['leverage']}x | {p['elapsed_min']}분"
+                    f"{emoji} <b>{p['agent_id']}</b> | {p['symbol']} {p['direction']} {p['leverage']}x\n"
+                    f"  진입 {entry_str} → 현재 {current_str}\n"
+                    f"  {roe_emoji} ROE: <b>{roe:+.2f}%</b> | ${upnl:+,.2f} | {p['elapsed_min']}분"
                 )
             return "\n".join(lines)
 

@@ -91,6 +91,24 @@ class HyperliquidWS:
         )
         self._running = True
 
+    def unsubscribe_symbols(self, symbols: list[str]) -> None:
+        """Unsubscribe specific symbols from all feeds."""
+        remove_set = set(symbols)
+        remaining = []
+        removed = 0
+        for sub, sid in self._sub_ids:
+            coin = sub.get("coin", "")
+            if coin in remove_set:
+                try:
+                    self._info.unsubscribe(sub, sid)
+                    removed += 1
+                except Exception:
+                    pass
+            else:
+                remaining.append((sub, sid))
+        self._sub_ids = remaining
+        logger.info("Unsubscribed %d subs for %d symbols: %s", removed, len(symbols), symbols)
+
     def unsubscribe_all(self) -> None:
         """Clean up all subscriptions."""
         for sub, sid in self._sub_ids:

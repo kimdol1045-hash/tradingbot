@@ -35,6 +35,7 @@ logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
     format="%(asctime)s | %(name)-24s | %(levelname)-5s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 logger = logging.getLogger("main")
 
@@ -112,7 +113,11 @@ async def main() -> None:
         logger.warning("No wallet keys configured — live trading unavailable")
 
     executor = OrderExecutor(db=db, dry_run=DRY_RUN, wallet_configs=wallet_configs)
-    position_mgr = PositionManager(executor=executor, dry_run=DRY_RUN, equity_tracker=equity_tracker)
+    position_mgr = PositionManager(
+        executor=executor, dry_run=DRY_RUN,
+        equity_tracker=equity_tracker,
+        candle_cache=collector.cache,
+    )
     advisor = MarketAdvisor(
         candle_cache=collector.cache,
         interval_hours=ADVISOR_INTERVAL_HOURS,
@@ -129,51 +134,32 @@ async def main() -> None:
 
     # Load symbol pool from symbols.json if available
     reload_symbol_pool()
+    # Re-read ALL_SYMBOLS after reload (import binding doesn't track reassignment)
+    from src.utils.config import ALL_SYMBOLS as _reloaded_symbols
+    all_symbols = _reloaded_symbols
 
-    # Allocate capital per agent from real wallet balances
-    wallet_addresses = get_wallet_addresses()
-    if wallet_addresses:
+    # Allocate capital per agent from wallet balances
+    wallet_addresses: dict[str, str] = {}
+    if wallet_configs and not DRY_RUN:
         try:
             info = get_info_client()
         except Exception:
-            logger.error("Failed to connect to Hyperliquid API for balance fetch", exc_info=True)
-            info = None
-        for agent_id in AGENT_PROFILES:
-            address = wallet_addresses.get(agent_id)
-            if address and info:
-                try:
-                    balance = fetch_wallet_balance(info, address)
-                except Exception:
-                    logger.warning("Failed to fetch balance for %s, defaulting to $0", agent_id, exc_info=True)
-                    balance = 0.0
-                pipeline.set_capital(agent_id, balance)
-                equity_tracker.initialize_agent(agent_id, balance)
-                logger.info("Agent %s: $%.2f (wallet %s...)", agent_id, balance, address[:10])
-            else:
-                pipeline.set_capital(agent_id, 0)
-                equity_tracker.initialize_agent(agent_id, 0)
-                if not address:
-                    logger.warning("Agent %s: no wallet address configured", agent_id)
-    elif wallet_configs:
-        try:
-            info = get_info_client()
-        except Exception:
-            logger.error("Failed to connect to Hyperliquid API for balance fetch", exc_info=True)
+            logger.error("Failed to connect to Hyperliquid API", exc_info=True)
             info = None
         for agent_id, wc in wallet_configs.items():
+            wallet_addresses[agent_id] = wc.wallet_address
             if info:
                 try:
                     balance = fetch_wallet_balance(info, wc.wallet_address)
                 except Exception:
-                    logger.warning("Failed to fetch balance for %s, defaulting to $0", agent_id, exc_info=True)
+                    logger.warning("Failed to fetch balance for %s", agent_id, exc_info=True)
                     balance = 0.0
             else:
                 balance = 0.0
             pipeline.set_capital(agent_id, balance)
             equity_tracker.initialize_agent(agent_id, balance)
-            logger.info("Agent %s: $%.2f (wallet %s...)", agent_id, balance, wc.wallet_address[:10])
+            logger.info("Agent %s: $%.2f (%s...)", agent_id, balance, wc.wallet_address[:12])
     else:
-        logger.warning("No wallet addresses configured — all agents start with $0")
         for agent_id in AGENT_PROFILES:
             pipeline.set_capital(agent_id, 0)
             equity_tracker.initialize_agent(agent_id, 0)
@@ -224,13 +210,26 @@ async def main() -> None:
             recon["matched"], recon["stale"], recon["orphaned"],
         )
 
+        # Restore matched positions into PositionManager in-memory tracking
+        await position_mgr.restore_from_db(db)
+
         # ── Start collector ──
-        await collector.start(symbols=ALL_SYMBOLS)
+        await collector.start(symbols=all_symbols)
 
         # Backfill from Hyperliquid
         logger.info("Backfilling historical data from Hyperliquid...")
-        await collector.backfill(symbols=ALL_SYMBOLS)
-        logger.info("Backfill complete, starting live trading")
+        await collector.backfill(symbols=all_symbols)
+        logger.info("Backfill complete")
+
+        # Re-place missing SL trigger orders (after backfill to avoid rate limit clash)
+        for _attempt in range(3):
+            try:
+                await position_mgr.ensure_exchange_orders()
+                break
+            except Exception:
+                logger.warning("ensure_exchange_orders failed (attempt %d/3), retrying in 5s", _attempt + 1)
+                await asyncio.sleep(5)
+        logger.info("Starting live trading")
 
         total_capital = sum(a.current_equity for a in equity_tracker.agents.values())
         mode = "LIVE (메인넷)" if not DRY_RUN else "DRY RUN (모의매매)"
@@ -238,14 +237,15 @@ async def main() -> None:
             f"  {aid}: ${a.current_equity:,.2f}"
             for aid, a in equity_tracker.agents.items()
         )
-        tier_summary = " / ".join(
-            f"{tier}: {', '.join(syms)}" for tier, syms in cfg.SYMBOL_POOL.items()
+        tier_lines = "\n".join(
+            f"  {tier} ({len(syms)}): {', '.join(syms)}"
+            for tier, syms in cfg.SYMBOL_POOL.items()
         )
         await notify_system(
             f"시스템 시작 [{mode}]\n"
             f"총 자본: ${total_capital:,.2f}\n"
             f"{agent_lines}\n"
-            f"매매 심볼 (스크리너 선별): {tier_summary}\n"
+            f"매매 심볼 (스크리너 선별):\n{tier_lines}\n"
             f"어드바이저: {'ON' if advisor else 'OFF'}"
             f"{f' ({ADVISOR_INTERVAL_HOURS}h)' if advisor else ''}"
         )

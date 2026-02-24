@@ -20,13 +20,17 @@ from typing import Any
 import aiosqlite
 
 from src.exchange.hyperliquid import (
+    cancel_order,
     get_exchange_client,
+    get_frontend_open_orders,
     get_info_client,
     get_max_leverage,
     get_user_state,
     place_entry_with_sl_tp,
     place_market_order,
     place_trigger_order,
+    round_price,
+    round_size,
     update_leverage,
 )
 from src.pipeline.models import Signal
@@ -116,7 +120,7 @@ class OrderExecutor:
             return
 
         if agent_id and agent_id in self.wallet_configs:
-            # Multi-wallet mode
+            # Per-agent API key mode (each agent has its own Hyperliquid account)
             if agent_id not in self._exchanges:
                 wc = self.wallet_configs[agent_id]
                 client = get_exchange_client(private_key=wc.private_key)
@@ -124,6 +128,7 @@ class OrderExecutor:
                     logger.error("Exchange client unavailable for agent %s", agent_id)
                 else:
                     self._exchanges[agent_id] = client
+                    logger.info("Agent %s: exchange client ready (%s...)", agent_id, wc.wallet_address[:12])
         else:
             # Legacy single-wallet mode
             if self._legacy_exchange is None:
@@ -136,7 +141,6 @@ class OrderExecutor:
         if agent_id and agent_id in self._exchanges:
             return self._exchanges[agent_id]
         if agent_id and agent_id in self.wallet_configs:
-            # Lazy init on demand
             self._ensure_clients(agent_id)
             return self._exchanges.get(agent_id)
         return self._legacy_exchange
@@ -200,7 +204,8 @@ class OrderExecutor:
             return OrderResult(success=False, error="NO_EXCHANGE_CLIENT")
 
         is_buy = signal.direction == "LONG"
-        size = signal.notional_usd / signal.entry_price if signal.entry_price > 0 else 0
+        raw_size = signal.notional_usd / signal.entry_price if signal.entry_price > 0 else 0
+        size = round_size(signal.symbol, raw_size, self._info)
         if size <= 0:
             return OrderResult(success=False, error="INVALID_SIZE")
 
@@ -221,54 +226,82 @@ class OrderExecutor:
             logger.exception("Failed to update leverage for %s", signal.symbol)
             # Non-fatal: continue with current leverage
 
-        # Step 2: Place entry + SL + TP atomically
-        tp_prices = [tp["price"] for tp in signal.take_profits]
-        tp_sizes = [size * tp["ratio"] for tp in signal.take_profits]
-
+        # Step 2: Market entry order
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 raw = await asyncio.to_thread(
-                    place_entry_with_sl_tp,
+                    place_market_order,
                     exchange,
                     signal.symbol,
                     is_buy,
                     size,
-                    signal.entry_price,  # limit price (IOC)
-                    signal.stop_loss,
-                    tp_prices,
-                    tp_sizes,
+                    0.01,  # 1% slippage
                 )
 
                 status = raw.get("status", "")
-                if status == "ok":
-                    statuses = raw.get("response", {}).get("data", {}).get("statuses", [])
-                    order_ids = _extract_order_ids(statuses)
-
-                    result = OrderResult(
-                        success=True,
-                        order_id=order_ids[0] if order_ids else "",
-                        fill_price=signal.entry_price,  # will be updated from fill
-                        fill_qty=size,
-                        sl_order_id=order_ids[1] if len(order_ids) > 1 else "",
-                        tp_order_ids=order_ids[2:] if len(order_ids) > 2 else [],
+                if status != "ok":
+                    error_msg = raw.get("response", {}).get("data", str(raw))
+                    logger.warning(
+                        "Entry attempt %d/%d failed: %s", attempt, MAX_RETRIES, error_msg,
                     )
+                    if attempt < MAX_RETRIES:
+                        await asyncio.sleep(RETRY_DELAY_S * attempt)
+                    continue
 
-                    logger.info(
-                        "LIVE FILL: %s %s %s @ ~%.2f qty=%.6f (attempt %d)",
-                        signal.agent_id, signal.direction, signal.symbol,
-                        signal.entry_price, size, attempt,
-                    )
+                # Check fill
+                statuses = raw.get("response", {}).get("data", {}).get("statuses", [])
+                if statuses:
+                    first = statuses[0] if isinstance(statuses, list) else statuses
+                    if isinstance(first, dict) and "error" in first:
+                        logger.warning(
+                            "Entry rejected: %s %s %s — %s",
+                            signal.agent_id, signal.symbol, signal.direction, first["error"],
+                        )
+                        return OrderResult(success=False, error=f"ENTRY_REJECTED: {first['error']}")
 
-                    await self._record_trade(signal, result)
-                    return result
+                order_ids = _extract_order_ids(statuses)
+                entry_oid = order_ids[0] if order_ids else ""
+                if not entry_oid:
+                    logger.warning("No entry order ID for %s %s", signal.symbol, signal.direction)
+                    return OrderResult(success=False, error="NO_ENTRY_ORDER_ID")
 
-                # Non-OK status
-                error_msg = raw.get("response", {}).get("data", str(raw))
-                logger.warning(
-                    "Order attempt %d/%d failed: %s", attempt, MAX_RETRIES, error_msg,
+                logger.info(
+                    "ENTRY FILLED: %s %s %s @ ~%.6f qty=%.6f (attempt %d)",
+                    signal.agent_id, signal.direction, signal.symbol,
+                    signal.entry_price, size, attempt,
                 )
-                if attempt < MAX_RETRIES:
-                    await asyncio.sleep(RETRY_DELAY_S * attempt)
+
+                # Step 3: Place SL trigger order (separate from entry)
+                sl_oid = ""
+                close_side = not is_buy
+                try:
+                    sl_raw = await asyncio.to_thread(
+                        place_trigger_order,
+                        exchange, signal.symbol, close_side, size,
+                        signal.stop_loss, "sl",
+                    )
+                    if sl_raw.get("status") == "ok":
+                        sl_statuses = sl_raw.get("response", {}).get("data", {}).get("statuses", [])
+                        sl_ids = _extract_order_ids(sl_statuses)
+                        sl_oid = sl_ids[0] if sl_ids else ""
+                    else:
+                        logger.warning("SL order failed for %s: %s", signal.symbol, sl_raw)
+                except Exception:
+                    logger.exception("SL order failed for %s", signal.symbol)
+
+                # Step 4: TP is handled by position_manager (market order on TP hit)
+                # No exchange-side TP trigger orders — avoids double execution
+
+                result = OrderResult(
+                    success=True,
+                    order_id=entry_oid,
+                    fill_price=signal.entry_price,
+                    fill_qty=size,
+                    sl_order_id=sl_oid,
+                    tp_order_ids=[],
+                )
+                await self._record_trade(signal, result)
+                return result
 
             except Exception as e:
                 logger.exception("Order attempt %d/%d exception", attempt, MAX_RETRIES)
@@ -276,6 +309,55 @@ class OrderExecutor:
                     await asyncio.sleep(RETRY_DELAY_S * attempt)
 
         return OrderResult(success=False, error="MAX_RETRIES_EXCEEDED")
+
+    async def update_sl_order(
+        self, symbol: str, direction: str, size: float,
+        old_sl_order_id: str, new_sl_price: float, agent_id: str = "",
+    ) -> str:
+        """Cancel existing SL and place a new one. Returns new SL order_id."""
+        if self.dry_run:
+            new_id = f"DRY_SL_{int(time.time())}"
+            logger.info(
+                "DRY_RUN SL update: %s %s SL→%.2f", direction, symbol, new_sl_price,
+            )
+            return new_id
+
+        self._ensure_clients(agent_id)
+        exchange = self._get_exchange(agent_id)
+        if exchange is None:
+            logger.error("No exchange client for SL update")
+            return ""
+
+        # Cancel old SL
+        if old_sl_order_id and old_sl_order_id.isdigit():
+            try:
+                await asyncio.to_thread(
+                    cancel_order, exchange, symbol, int(old_sl_order_id),
+                )
+            except Exception:
+                logger.warning("Failed to cancel old SL %s", old_sl_order_id, exc_info=True)
+
+        # Place new SL trigger order
+        is_buy = direction == "SHORT"  # close SHORT → BUY
+        size = round_size(symbol, size, self._info)
+        if size <= 0:
+            logger.error("SL update failed: size rounds to 0 for %s", symbol)
+            return ""
+        try:
+            raw = await asyncio.to_thread(
+                place_trigger_order, exchange, symbol, is_buy, size,
+                new_sl_price, "sl",
+            )
+            if raw.get("status") == "ok":
+                statuses = raw.get("response", {}).get("data", {}).get("statuses", [])
+                ids = _extract_order_ids(statuses)
+                new_id = ids[0] if ids else ""
+                logger.info("SL updated: %s %s → %.2f (id=%s)", symbol, direction, new_sl_price, new_id)
+                return new_id
+        except Exception:
+            logger.exception("Failed to place new SL for %s", symbol)
+
+        return ""
 
     async def cancel_orders(
         self, symbol: str, order_ids: list[str], agent_id: str = "",
@@ -315,6 +397,9 @@ class OrderExecutor:
             return OrderResult(success=False, error="NO_EXCHANGE_CLIENT")
 
         is_buy = direction == "SHORT"  # close SHORT → BUY, close LONG → SELL
+        size = round_size(symbol, size, self._info)
+        if size <= 0:
+            return OrderResult(success=False, error="INVALID_SIZE_AFTER_ROUND")
         try:
             raw = await asyncio.to_thread(
                 place_market_order, exchange, symbol, is_buy, size,
@@ -359,6 +444,103 @@ class OrderExecutor:
         except Exception:
             logger.exception("Failed to fetch exchange positions for %s", agent_id or "legacy")
             return []
+
+    async def get_trigger_orders(self, agent_id: str = "") -> list[dict]:
+        """Fetch open trigger orders (SL/TP) for an agent wallet."""
+        address = self._get_address(agent_id)
+        if self.dry_run or not address:
+            return []
+
+        self._ensure_info()
+        if self._info is None:
+            return []
+
+        try:
+            orders = await asyncio.to_thread(
+                get_frontend_open_orders, self._info, address,
+            )
+            return orders
+        except Exception:
+            logger.exception("Failed to fetch trigger orders for %s", agent_id or "legacy")
+            return []
+
+    async def place_sl_tp_for_position(
+        self,
+        symbol: str,
+        direction: str,
+        size: float,
+        sl_price: float,
+        take_profits: list[dict],
+        agent_id: str = "",
+    ) -> tuple[str, list[str]]:
+        """Place SL and TP trigger orders for an existing position.
+
+        Pass sl_price=0 to skip SL placement (e.g. when SL already exists).
+        Pass take_profits=[] to skip TP placement.
+
+        Returns (sl_order_id, [tp_order_ids]).
+        """
+        if self.dry_run:
+            sl_id = f"DRY_SL_{int(time.time())}" if sl_price > 0 else ""
+            tp_ids = [f"DRY_TP{i}_{int(time.time())}" for i in range(len(take_profits))]
+            logger.info("DRY_RUN SL/TP restore: %s %s SL=%.2f TPs=%d", direction, symbol, sl_price, len(take_profits))
+            return sl_id, tp_ids
+
+        self._ensure_clients(agent_id)
+        exchange = self._get_exchange(agent_id)
+        if exchange is None:
+            logger.error("No exchange client for SL/TP placement (%s)", agent_id)
+            return "", []
+
+        close_side = direction == "SHORT"  # close SHORT → BUY, close LONG → SELL
+        size = round_size(symbol, size, self._info)
+        if size <= 0:
+            logger.error("SL/TP placement: size rounds to 0 for %s", symbol)
+            return "", []
+
+        # Place SL
+        sl_oid = ""
+        if sl_price > 0:
+            try:
+                sl_raw = await asyncio.to_thread(
+                    place_trigger_order, exchange, symbol, close_side, size,
+                    sl_price, "sl",
+                )
+                if sl_raw.get("status") == "ok":
+                    sl_statuses = sl_raw.get("response", {}).get("data", {}).get("statuses", [])
+                    sl_ids = _extract_order_ids(sl_statuses)
+                    sl_oid = sl_ids[0] if sl_ids else ""
+                    logger.info("SL restored: %s %s @ %.2f (id=%s)", symbol, direction, sl_price, sl_oid)
+                else:
+                    logger.warning("SL restore failed for %s: %s", symbol, sl_raw)
+            except Exception:
+                logger.exception("SL restore failed for %s", symbol)
+
+        # Place TPs
+        tp_oids: list[str] = []
+        for tp in take_profits:
+            tp_sz = round_size(symbol, size * tp["ratio"] / 100.0, self._info)
+            if tp_sz <= 0:
+                continue
+            try:
+                tp_raw = await asyncio.to_thread(
+                    place_trigger_order, exchange, symbol, close_side, tp_sz,
+                    tp["price"], "tp",
+                )
+                if tp_raw.get("status") == "ok":
+                    tp_statuses = tp_raw.get("response", {}).get("data", {}).get("statuses", [])
+                    tp_ids = _extract_order_ids(tp_statuses)
+                    if tp_ids:
+                        tp_oids.append(tp_ids[0])
+                        logger.info("TP restored: %s %s @ %.2f (id=%s)", symbol, direction, tp["price"], tp_ids[0])
+                    else:
+                        logger.warning("TP restore failed for %s @ %.2f: %s", symbol, tp["price"], tp_raw)
+                else:
+                    logger.warning("TP restore failed for %s @ %.2f: %s", symbol, tp["price"], tp_raw)
+            except Exception:
+                logger.exception("TP restore failed for %s @ %.2f", symbol, tp["price"])
+
+        return sl_oid, tp_oids
 
     # ── DB Persistence ──
 

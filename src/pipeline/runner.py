@@ -20,6 +20,7 @@ from src.pipeline.phase3_scan import phase3_scan
 from src.pipeline.phase4_gate import phase4_gate
 from src.pipeline.phase5_execute import phase5_execute
 from src.utils.config import AGENT_PROFILES, MDD_POLICIES, get_agent_symbols
+from src.utils.indicators import atr_single, candles_to_arrays
 from src.utils.market_stats import MarketStats, compute_stats
 from src.utils.params import load_params
 
@@ -190,6 +191,10 @@ class PipelineRunner:
                 notify_safety(safety.stage, safety.severity, safety.mdd_mode, safety.reason),
                 name="notify_safety",
             )
+
+            # Emergency tighten SL on stage escalation
+            if self.pm and safety.stage in ("STAGE_1", "STAGE_2"):
+                self.pm.emergency_tighten(safety.stage)
 
         if safety.action == "CLOSE_ALL_AND_HALT":
             logger.warning("[%s/%s] EMERGENCY: %s", agent_id, symbol, safety.reason)
@@ -370,9 +375,36 @@ class PipelineRunner:
             ai_lev_mult = advice["ai_leverage_mult"]
             ai_sl_mult = advice["ai_sl_mult"]
 
+        # Update avg_atr_7d EMA and 24h ATR from latest 5m candles
+        candles_5m = self.cache.get(symbol, "5m", limit=300)
+        if candles_5m and len(candles_5m) >= 30:
+            arr = candles_to_arrays(candles_5m)
+            current_atr = atr_single(arr["high"], arr["low"], arr["close"], period=14)
+
+            # 24h ATR (288 × 5m candles) for SL calculation — wider, more stable
+            atr_24h = atr_single(arr["high"], arr["low"], arr["close"], period=min(288, len(candles_5m) - 1))
+
+            if current_atr > 0:
+                for aid in agent_order:
+                    if aid in self.agent_states:
+                        prev = self.agent_states[aid].get("avg_atr_7d", 0.0)
+                        if prev <= 0:
+                            self.agent_states[aid]["avg_atr_7d"] = current_atr
+                        else:
+                            alpha = 0.01  # ~100 candle smoothing
+                            self.agent_states[aid]["avg_atr_7d"] = prev * (1 - alpha) + current_atr * alpha
+                        # Store 24h ATR per symbol for SL calculation
+                        if atr_24h > 0:
+                            sl_atr_map = self.agent_states[aid].setdefault("sl_atr_map", {})
+                            sl_atr_map[symbol] = atr_24h
+
         for agent_id in agent_order:
             profile = AGENT_PROFILES.get(agent_id)
             if not profile:
+                continue
+
+            # Skip agents with no capital (disabled)
+            if self.agent_states.get(agent_id, {}).get("capital", 0) <= 0:
                 continue
 
             # Check if this agent trades this symbol
@@ -409,6 +441,10 @@ class PipelineRunner:
                 self.agent_states[agent_id]["symbol_positions"] = sym_positions
                 self.agent_states[agent_id]["coin_exposure_usd"] = coin_exposure
 
+                # Total margin used by this agent
+                total_margin = sum(pos.signal.margin_usd for pos in open_pos)
+                self.agent_states[agent_id]["total_margin_used"] = total_margin
+
                 # Total capital across all agents
                 total_capital = sum(
                     self.agent_states[aid].get("capital", 0)
@@ -416,10 +452,20 @@ class PipelineRunner:
                 )
                 self.agent_states[agent_id]["total_capital"] = total_capital
 
-            # Inject AI advisor multipliers and max leverage map into agent state
+            # Skip if this agent already has a pending/open position on this symbol
+            if self.pm and self.pm.has_active_position(agent_id, symbol):
+                continue
+
+            # Skip if this agent+symbol is in rejection cooldown (recent margin failure)
+            if self.pm and self.pm.is_rejected_cooldown(agent_id, symbol):
+                logger.debug("[%s/%s] Skipped: rejection cooldown active", agent_id, symbol)
+                continue
+
+            # Inject AI advisor multipliers, max leverage map, and coin count into agent state
             self.agent_states[agent_id]["ai_leverage_mult"] = ai_lev_mult
             self.agent_states[agent_id]["ai_sl_mult"] = ai_sl_mult
             self.agent_states[agent_id]["max_leverage_map"] = self._max_leverage_map
+            self.agent_states[agent_id]["num_available_coins"] = len(allowed_symbols)
 
             signal = self.run_agent(agent_id, symbol)
             if signal:
