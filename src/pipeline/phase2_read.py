@@ -274,6 +274,9 @@ def _classify_regime(dna: dict) -> tuple[str, float]:
     Classify market regime from DNA composite score.
     Score is on 0~100 scale (z-score normalized).
 
+    Confidence = how deeply the score sits within the detected regime's range.
+    Center of range → 1.0, boundary → 0.0.
+
     Returns (regime_name, confidence).
     """
     score = dna["score"]
@@ -282,19 +285,27 @@ def _classify_regime(dna: dict) -> tuple[str, float]:
 
     # VOLATILE check: high entropy + high liquidation pressure
     if entropy_norm > 80 and liq_norm > 80:
-        return "VOLATILE", dna["confidence"]
+        vol_intensity = ((entropy_norm - 80) / 20 + (liq_norm - 80) / 20) / 2
+        return "VOLATILE", min(vol_intensity, 1.0)
 
-    # Direction-based classification
+    # Direction-based classification + regime-specific confidence
     if score >= 70:
-        return "STRONG_UPTREND", dna["confidence"]
+        regime = "STRONG_UPTREND"
+        confidence = min((score - 70) / 15, 1.0)      # 70→0.0, 85→1.0
     elif score >= 58:
-        return "WEAK_UPTREND", dna["confidence"]
+        regime = "WEAK_UPTREND"
+        confidence = 1.0 - abs(score - 64) / 6         # 64→1.0, 58/70→0.0
     elif score >= 42:
-        return "SIDEWAYS", dna["confidence"]
+        regime = "SIDEWAYS"
+        confidence = 1.0 - abs(score - 50) / 8          # 50→1.0, 42/58→0.0
     elif score >= 30:
-        return "WEAK_DOWNTREND", dna["confidence"]
+        regime = "WEAK_DOWNTREND"
+        confidence = 1.0 - abs(score - 36) / 6         # 36→1.0, 30/42→0.0
     else:
-        return "STRONG_DOWNTREND", dna["confidence"]
+        regime = "STRONG_DOWNTREND"
+        confidence = min((30 - score) / 15, 1.0)       # 15→1.0, 30→0.0
+
+    return regime, max(0.0, min(confidence, 1.0))
 
 
 # ═══ MTF Integration ═══
@@ -473,7 +484,8 @@ def phase2_read(
     dna_params = params.get("dna", {})
     dna_history = agent_state.get("dna_history", {})
 
-    # ━━━━ 2B: TF별 DNA 계산 ━━━━
+    # ━━━━ 2B: TF별 DNA 계산 + 히스토리 누적 ━━━━
+    DNA_HISTORY_MAXLEN = 200  # rolling window per component per TF
     tf_results = {}
     for tf in timeframes:
         candles = candles_by_tf.get(tf, [])
@@ -481,9 +493,21 @@ def phase2_read(
             tf_results[tf] = ("SIDEWAYS", 0.0)
             continue
 
-        dna = _calculate_dna(candles, dna_params, dna_history.get(tf))
+        tf_hist = dna_history.get(tf, {})
+        dna = _calculate_dna(candles, dna_params, tf_hist)
         regime, confidence = _classify_regime(dna)
         tf_results[tf] = (regime, confidence)
+
+        # Accumulate raw DNA values into history for z-score normalization
+        if tf not in dna_history:
+            dna_history[tf] = {}
+        for key, val in dna["raw"].items():
+            if key not in dna_history[tf]:
+                dna_history[tf][key] = []
+            dna_history[tf][key].append(float(val))
+            # Trim to rolling window
+            if len(dna_history[tf][key]) > DNA_HISTORY_MAXLEN:
+                dna_history[tf][key] = dna_history[tf][key][-DNA_HISTORY_MAXLEN:]
 
     # ━━━━ 2C: MTF 통합 ━━━━
     if len(timeframes) == 1:
@@ -505,6 +529,10 @@ def phase2_read(
         current_regime, regime, confidence, alignment,
         grace_counter, transition_params,
     )
+
+    # ━━━━ 2E: agent_state 업데이트 (regime + grace_counter) ━━━━
+    agent_state["current_regime"] = transition["regime"]
+    agent_state["grace_counter"] = transition["grace_counter"]
 
     # STAGE_3: confidence penalty
     final_confidence = transition["confidence"]

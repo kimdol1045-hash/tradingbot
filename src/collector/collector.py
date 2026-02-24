@@ -269,6 +269,8 @@ class DataCollector:
         aux = self._aux_data.get(symbol, {})
         candle["funding_rate"] = aux.get("funding_rate")
         candle["open_interest"] = aux.get("open_interest")
+        candle["bid_ask_spread"] = aux.get("bid_ask_spread")
+        candle["orderbook_imbalance"] = aux.get("orderbook_imbalance")
 
         # Store 5m candle
         self.cache.append(symbol, "5m", candle)
@@ -302,11 +304,17 @@ class DataCollector:
         ctx = data.get("data", data)
         if isinstance(ctx, dict) and "coin" in ctx:
             symbol = ctx["coin"]
-            self._aux_data[symbol] = {
-                "funding_rate": float(ctx.get("funding", 0)),
-                "open_interest": float(ctx.get("openInterest", 0)),
-                "mark_price": float(ctx.get("markPx", 0)),
-            }
+            # WS activeAssetCtx nests financial data inside "ctx" sub-key:
+            #   {"coin": "BTC", "ctx": {"funding": "...", "openInterest": "..."}}
+            inner = ctx.get("ctx", ctx)
+            if isinstance(inner, dict):
+                prev = self._aux_data.get(symbol, {})
+                prev.update({
+                    "funding_rate": float(inner.get("funding", 0)),
+                    "open_interest": float(inner.get("openInterest", 0)),
+                    "mark_price": float(inner.get("markPx", 0)),
+                })
+                self._aux_data[symbol] = prev
 
     async def _poll_aux_data(self) -> None:
         """Periodically fetch orderbook data via REST (every 30s)."""

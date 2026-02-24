@@ -558,8 +558,11 @@ Layer 4: AI 적응
 │  • positions     │  │  • 일일 리포트    │  │  • params_history│
 │  • equity        │  │  • 시스템         │  │                  │
 │  • evolver       │  │                  │  │  Mode: WAL       │
-│  • advisor       │  │                  │  │  Busy: 5s        │
-│  • screener      │  │                  │  │                  │
+│  • advisor       │  │  양방향 대화:     │  │  Busy: 5s        │
+│  • screener      │  │  • 자연어 질의    │  │                  │
+│                  │  │  • 도구 시스템    │  │                  │
+│                  │  │    (코드/로그/DB) │  │                  │
+│                  │  │  • 매매 중지/재개 │  │                  │
 └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 

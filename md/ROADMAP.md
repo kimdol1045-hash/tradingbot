@@ -1,14 +1,14 @@
 # 구현 로드맵
 
 > **원본 설계 문서**: [PIPELINE_v5.0.md](./PIPELINE_v5.0.md)
-> **최종 업데이트**: 2026-02-23
+> **최종 업데이트**: 2026-02-24
 
 ---
 
 ## 프로젝트 현황 요약
 
 ```
-상태: Sprint 10 + Post-Sprint 추가 기능 완료 — 실전 운영 중
+상태: Sprint 10 + Post-Sprint 완료 — 실전 운영 중 (OpenClaw 도구 시스템 포함)
 파일: 80개+ (Python 51+, JSON 4개, 설계문서 12개, 배포 설정 등)
 코드: ~12,400줄 (Python)
 Git: main 브랜치, 15 commits
@@ -54,7 +54,7 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
   │   │       ├── chart_patterns.py  # 7개 차트 패턴
   │   │       └── inflection.py      # T1~T8 변곡점 감지
   │   ├── notify/
-  │   │   └── telegram.py            # 슈퍼그룹 Topics 알림
+  │   │   └── telegram.py            # 슈퍼그룹 Topics 알림 + 양방향 AI 대화 + 도구 시스템
   │   ├── openclaw/
   │   │   └── evolver.py             # GPT-4o 파라미터 진화 (4시간 주기)
   │   └── utils/
@@ -307,6 +307,23 @@ Python: 3.12+ (개발 환경에서 3.14.3 확인)
 - [x] **레버리지 ROE% 알림** (`telegram.py`): 시그널/체결 알림에 레버리지 반영 ROE% 표시
 - [x] **Long/Short 분석 스크립트** (`scripts/analyze.py`): 방향별 승률/PF 분석
 - [x] **3년 백테스트 리포트**: BTC/ETH/SOL/XRP 주요 코인 3년 백테스트 + 최적화
+
+---
+
+### ✅ Post-Sprint: OpenClaw 도구 시스템 (2/24)
+
+**구현 완료 항목:**
+- [x] **텔레그램 챗봇 도구 시스템** (`src/notify/telegram.py`): 텍스트 기반 `<tool:name>...</tool>` 태그로 LLM이 코드/로그/DB 직접 조회
+  - `read_file` — 프로젝트 파일 읽기 (200줄 제한, 줄 범위 지정 가능)
+  - `list_files` — glob 패턴 파일 검색 (50개 제한)
+  - `search_code` — grep 기반 코드 검색 (30건 제한, glob 필터 지원)
+  - `read_logs` — bot.log 최근 로그 조회 (200줄 제한)
+  - `query_db` — SQLite SELECT 쿼리 실행 (50행 제한, SELECT만 허용)
+  - `write_checklist` — `docs/checklists/` 폴더에 수정 체크리스트 생성 (.md만)
+- [x] **멀티턴 도구 루프**: LLM → 도구 파싱 → 실행 → 결과 피드백 → 최종 답변 (최대 3턴)
+- [x] **`_call_llm_messages()`**: 전체 메시지 히스토리 지원 LLM 호출 (max_tokens=1000)
+- [x] **안전장치**: `_safe_path()` 경로 탈출 차단, DB는 SELECT만, 쓰기는 `docs/checklists/`만
+- [x] **오늘 청산 요약 데이터**: `_gather_system_data()`에 `today_trades` (청산수, 실현손익, 승/패) 항상 포함
 
 ---
 

@@ -658,6 +658,27 @@ _CHAT_SYSTEM_PROMPT = """\
 6. 상태(status): 시스템 컴포넌트 상태
 7. 매매 중지/재개: pause/resume 명령
 
+도구 사용법:
+파일이나 로그를 확인해야 할 때 아래 태그를 사용해. 한 번에 여러 도구를 사용할 수 있어.
+
+<tool:read_file>src/pipeline/phase5_execute.py:1-50</tool>
+<tool:list_files>src/**/*.py</tool>
+<tool:search_code>calculate_take_profits</tool>
+<tool:search_code>round_price glob:src/exchange/*.py</tool>
+<tool:read_logs>100</tool>
+<tool:query_db>SELECT symbol, side, pnl_usd FROM trades ORDER BY exit_time DESC LIMIT 10</tool>
+
+코드 수정이 필요한 경우, 직접 수정하지 말고 체크리스트를 생성해:
+<tool:write_checklist>파일명
+# 수정 체크리스트 제목
+- [ ] 수정할 파일: `경로`
+- [ ] 변경 내용: 설명
+- [ ] 이유: 분석 근거
+</tool>
+
+도구 결과가 돌아오면 그 내용을 바탕으로 사용자에게 답해줘.
+도구가 필요 없는 질문은 바로 답해도 돼.
+
 응답 규칙:
 - 간결하고 핵심만 전달 (Telegram 메시지)
 - 숫자는 읽기 쉽게 포맷 ($1,234.56)
@@ -668,6 +689,229 @@ _CHAT_SYSTEM_PROMPT = """\
 system_data에 현재 시스템 상태가 JSON으로 제공됨.
 사용자 질문에 맞는 정보를 찾아서 답해줘.
 """
+
+
+# ═══ Tool System (text-based, no function calling) ═══
+
+from pathlib import Path as _Path
+
+_PROJECT_ROOT = str(_Path(__file__).resolve().parent.parent.parent)
+
+_TOOL_PATTERN = re.compile(r"<tool:(\w+)>(.*?)</tool>", re.DOTALL)
+
+
+def _parse_tool_calls(text: str) -> list[tuple[str, str]]:
+    """Extract tool calls from LLM response."""
+    return [(m.group(1), m.group(2).strip()) for m in _TOOL_PATTERN.finditer(text)]
+
+
+def _strip_tool_tags(text: str) -> str:
+    """Remove <tool:...>...</tool> tags from final response text."""
+    return _TOOL_PATTERN.sub("", text).strip()
+
+
+def _safe_path(rel_path: str) -> str | None:
+    """Resolve path and ensure it stays within PROJECT_ROOT."""
+    full = os.path.normpath(os.path.join(_PROJECT_ROOT, rel_path))
+    if not full.startswith(_PROJECT_ROOT):
+        return None
+    return full
+
+
+def _tool_read_file(args: str) -> str:
+    """Read file contents. Args: relative path, optional :start-end line range."""
+    parts = args.strip().split(":")
+    rel_path = parts[0].strip()
+    safe = _safe_path(rel_path)
+    if not safe or not os.path.isfile(safe):
+        return f"Error: file not found — {rel_path}"
+    start, end = 0, 200
+    if len(parts) > 1:
+        try:
+            rng = parts[1].strip().split("-")
+            start = max(int(rng[0]) - 1, 0)
+            end = int(rng[1]) if len(rng) > 1 else start + 200
+        except (ValueError, IndexError):
+            pass
+    try:
+        with open(safe, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()[start:end]
+    except Exception as e:
+        return f"Error reading file: {e}"
+    return f"[{rel_path} lines {start+1}-{start+len(lines)}]\n" + "".join(lines)
+
+
+def _tool_list_files(args: str) -> str:
+    """List files matching glob pattern. Args: glob pattern (e.g., 'src/**/*.py')."""
+    import glob as _glob
+
+    pattern = os.path.join(_PROJECT_ROOT, args.strip())
+    matches = sorted(_glob.glob(pattern, recursive=True))
+    rel = [os.path.relpath(m, _PROJECT_ROOT) for m in matches if os.path.isfile(m)]
+    shown = rel[:50]
+    return f"[{len(rel)} files, showing {len(shown)}]\n" + "\n".join(shown)
+
+
+def _tool_search_code(args: str) -> str:
+    """Search for text in files. Args: 'pattern' or 'pattern glob:*.py'."""
+    import subprocess
+
+    parts = args.strip().split(" glob:")
+    search_pattern = parts[0].strip()
+    if not search_pattern:
+        return "Error: search pattern is empty"
+
+    cmd = ["grep", "-rn", "--include=*.py", "--include=*.json", "--include=*.md"]
+    if len(parts) > 1:
+        glob_filter = parts[1].strip()
+        cmd = ["grep", "-rn", f"--include={glob_filter}"]
+    cmd += [search_pattern, _PROJECT_ROOT]
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=10
+        )
+        lines = result.stdout.strip().split("\n")[:30]
+        # Make paths relative
+        out = []
+        for line in lines:
+            if line.startswith(_PROJECT_ROOT):
+                line = line[len(_PROJECT_ROOT) + 1 :]
+            out.append(line)
+        return f"[{len(lines)} matches]\n" + "\n".join(out)
+    except subprocess.TimeoutExpired:
+        return "Error: search timed out"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _tool_read_logs(args: str) -> str:
+    """Read recent bot logs. Args: optional line count (default 50)."""
+    log_path = os.path.join(_PROJECT_ROOT, "logs", "bot.log")
+    if not os.path.isfile(log_path):
+        return "Error: log file not found"
+    n = int(args.strip()) if args.strip().isdigit() else 50
+    n = min(n, 200)
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        tail = lines[-n:]
+        return f"[Last {len(tail)} lines of bot.log]\n" + "".join(tail)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _tool_query_db(args: str) -> str:
+    """Run SELECT query on SQLite DB. Args: SQL query (SELECT only)."""
+    import sqlite3
+
+    sql = args.strip()
+    upper = sql.upper().lstrip()
+    if not upper.startswith("SELECT"):
+        return "Error: only SELECT queries are allowed"
+    # Block dangerous keywords
+    for kw in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "ATTACH"):
+        if kw in upper:
+            return f"Error: {kw} is not allowed"
+
+    from src.utils.config import DB_PATH
+
+    if not os.path.isfile(str(DB_PATH)):
+        return "Error: database not found"
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute(sql)
+        rows = cursor.fetchmany(50)
+        if not rows:
+            return "(no results)"
+        cols = rows[0].keys()
+        header = " | ".join(cols)
+        lines = [header, "-" * len(header)]
+        for r in rows:
+            lines.append(" | ".join(str(r[c]) for c in cols))
+        conn.close()
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _tool_write_checklist(args: str) -> str:
+    """Create a checklist file in docs/checklists/. Args: filename\\ncontent"""
+    lines = args.strip().split("\n", 1)
+    if len(lines) < 2:
+        return "Error: format is filename\\ncontent"
+    filename = lines[0].strip()
+    content = lines[1]
+    if not filename.endswith(".md"):
+        filename += ".md"
+    # Sanitize filename
+    filename = filename.replace("/", "_").replace("\\", "_")
+    checklist_dir = os.path.join(_PROJECT_ROOT, "docs", "checklists")
+    os.makedirs(checklist_dir, exist_ok=True)
+    safe = _safe_path(os.path.join("docs", "checklists", filename))
+    if not safe:
+        return "Error: invalid path"
+    try:
+        with open(safe, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Checklist created: docs/checklists/{filename}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+_TOOLS: dict[str, callable] = {
+    "read_file": _tool_read_file,
+    "list_files": _tool_list_files,
+    "search_code": _tool_search_code,
+    "read_logs": _tool_read_logs,
+    "query_db": _tool_query_db,
+    "write_checklist": _tool_write_checklist,
+}
+
+
+# ═══ LLM Calling ═══
+
+async def _call_llm_messages(messages: list[dict]) -> str | None:
+    """Call LLM with full message history (for multi-turn tool use)."""
+    if _USE_OPENCLAW:
+        if not _OPENCLAW_GATEWAY_TOKEN:
+            logger.warning("OpenClaw gateway token not configured for chat LLM")
+            return None
+        api_url = f"{_OPENCLAW_GATEWAY_URL}/v1/chat/completions"
+        auth_token = _OPENCLAW_GATEWAY_TOKEN
+    else:
+        if not OPENAI_API_KEY:
+            logger.warning("OpenAI API key not configured for chat LLM")
+            return None
+        api_url = "https://api.openai.com/v1/chat/completions"
+        auth_token = OPENAI_API_KEY
+
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": _LLM_MODEL,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 1000,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(api_url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                try:
+                    return data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError):
+                    logger.warning("Unexpected LLM response format: %s", str(data)[:200])
+                    return None
+            logger.warning("LLM API error: %d %s", resp.status_code, resp.text[:300])
+    except Exception:
+        logger.warning("LLM call failed", exc_info=True)
+    return None
 
 
 async def _call_llm(system_prompt: str, user_prompt: str) -> str | None:
@@ -750,7 +994,7 @@ class TelegramChatHandler:
         return self._paused
 
     async def _reply(self, chat_id: int, text: str, thread_id: int | None = None):
-        """Reply to a message."""
+        """Reply to a message with retry."""
         if not TELEGRAM_BOT_TOKEN:
             return
         text = _truncate_message(text)
@@ -762,11 +1006,16 @@ class TelegramChatHandler:
         }
         if thread_id is not None:
             payload["message_thread_id"] = thread_id
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                await client.post(url, json=payload)
-        except Exception:
-            logger.warning("Reply failed", exc_info=True)
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=20) as client:
+                    await client.post(url, json=payload)
+                return
+            except Exception:
+                if attempt < 2:
+                    await asyncio.sleep(2 * (attempt + 1))
+                else:
+                    logger.warning("Reply failed after 3 attempts", exc_info=True)
 
     async def _get_updates(self) -> list[dict]:
         """Long-poll for new messages."""
@@ -859,6 +1108,34 @@ class TelegramChatHandler:
         except Exception:
             pass
 
+        # Today's closed trades summary
+        try:
+            import sqlite3 as _sqlite3
+            from src.utils.config import DB_PATH
+            if os.path.isfile(str(DB_PATH)):
+                conn = _sqlite3.connect(str(DB_PATH))
+                cur = conn.execute(
+                    "SELECT COUNT(*) as cnt, "
+                    "COALESCE(SUM(pnl_usd), 0) as total_pnl, "
+                    "COALESCE(SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END), 0) as wins, "
+                    "COALESCE(SUM(CASE WHEN pnl_usd <= 0 THEN 1 ELSE 0 END), 0) as losses "
+                    "FROM trades WHERE exit_time IS NOT NULL "
+                    "AND date(exit_time/1000, 'unixepoch', '+9 hours') = date('now', '+9 hours')"
+                )
+                row = cur.fetchone()
+                conn.close()
+                if row and row[0] > 0:
+                    data["today_trades"] = {
+                        "closed_count": row[0],
+                        "realized_pnl": round(row[1], 2),
+                        "wins": row[2],
+                        "losses": row[3],
+                    }
+                else:
+                    data["today_trades"] = {"closed_count": 0, "realized_pnl": 0.0, "wins": 0, "losses": 0}
+        except Exception:
+            pass
+
         data["paused"] = self._paused
         return data
 
@@ -914,19 +1191,55 @@ class TelegramChatHandler:
         if any(kw in user_lower for kw in ["거래", "매매", "trade", "내역", "기록", "최근"]):
             system_data["recent_trades"] = await self._get_recent_trades()
 
-        # Build LLM prompt
+        # Build LLM messages
         data_json = json.dumps(system_data, ensure_ascii=False, default=str, indent=2)
-        user_prompt = f"system_data:\n{data_json}\n\n사용자 질문: {user_text}"
+        messages = [
+            {"role": "system", "content": _CHAT_SYSTEM_PROMPT},
+            {"role": "user", "content": f"system_data:\n{data_json}\n\n사용자 질문: {user_text}"},
+        ]
 
-        # Try LLM
-        response = await _call_llm(_CHAT_SYSTEM_PROMPT, user_prompt)
+        # Multi-turn tool loop (max 3 turns)
+        response = None
+        for _turn in range(3):
+            response = await _call_llm_messages(messages)
+            if not response:
+                break
 
+            # Parse tool calls from response
+            tool_calls = _parse_tool_calls(response)
+            if not tool_calls:
+                # No tools — this is the final answer
+                final_text = _strip_tool_tags(response)
+                await self._reply(chat_id, final_text, thread_id)
+                return
+
+            # Execute tools and build results
+            tool_results = []
+            for tool_name, tool_args in tool_calls:
+                fn = _TOOLS.get(tool_name)
+                if fn:
+                    try:
+                        result = fn(tool_args)
+                    except Exception as e:
+                        result = f"Error: {e}"
+                    tool_results.append(f"<result:{tool_name}>\n{result}\n</result>")
+                else:
+                    tool_results.append(f"<result:{tool_name}>Unknown tool: {tool_name}</result>")
+
+            # Append assistant + tool results, continue loop
+            messages.append({"role": "assistant", "content": response})
+            messages.append({"role": "user", "content": "\n".join(tool_results)})
+
+        # Final response after tool turns (or fallback)
         if response:
-            await self._reply(chat_id, response, thread_id)
-        else:
-            # Fallback: simple keyword matching
-            fallback = await self._fallback_response(user_lower, system_data)
-            await self._reply(chat_id, fallback, thread_id)
+            final_text = _strip_tool_tags(response)
+            if final_text:
+                await self._reply(chat_id, final_text, thread_id)
+                return
+
+        # Fallback: simple keyword matching
+        fallback = await self._fallback_response(user_lower, system_data)
+        await self._reply(chat_id, fallback, thread_id)
 
     async def _fallback_response(self, text: str, data: dict) -> str:
         """Fallback response when LLM is unavailable."""
@@ -1011,17 +1324,13 @@ class TelegramChatHandler:
         return "🤔 질문을 이해하지 못했어요. 잔고, 포지션, 수익, 상태 등을 물어보세요."
 
     async def poll_loop(self, interval: float = 1.0):
-        """Main polling loop — system 토픽에서 메시지를 수신합니다."""
+        """Main polling loop — General 토픽에서 메시지를 수신합니다."""
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
             logger.warning("Telegram not configured, chat handler disabled")
             return
 
         self._running = True
-        system_thread_id = TOPIC_IDS.get("system")
-        logger.info(
-            "Telegram chat handler started (system topic thread_id=%s)",
-            system_thread_id,
-        )
+        logger.info("Telegram chat handler started (General topic)")
 
         while self._running:
             try:
@@ -1039,8 +1348,8 @@ class TelegramChatHandler:
                         self._offset = update_id + 1
                         continue
 
-                    # Only respond in system topic (or general chat if no topics)
-                    if system_thread_id is not None and thread_id != system_thread_id:
+                    # Only respond in General topic (thread_id is None)
+                    if thread_id is not None:
                         self._offset = update_id + 1
                         continue
 

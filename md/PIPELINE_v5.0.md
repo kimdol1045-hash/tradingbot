@@ -3607,6 +3607,79 @@ TELEGRAM_TOPICS = {
  ATR 편차 +3.2σ | 신규 진입 차단 5분
 ```
 
+### 5.4 양방향 자연어 대화 (General 토픽)
+
+텔레그램 General 토픽에서 사용자가 자연어 질문을 보내면 AI(OpenClaw/OpenAI)가 시스템 데이터를 기반으로 한국어로 답변한다.
+
+**핸들러**: `TelegramChatHandler` (long-polling `getUpdates` 방식)
+
+**자동 제공 데이터** (`_gather_system_data()`):
+- 에이전트별 잔고 (perp, spot, 합계)
+- 오픈 포지션 (심볼, 방향, ROE%, 미실현PnL)
+- 시스템 상태 (컴포넌트, uptime)
+- 오늘 청산 요약 (청산수, 실현손익, 승/패)
+- 매매 중지/재개 상태
+
+**명령어**: `매매 중지` / `매매 재개` → 즉시 실행 (regex 매칭)
+
+### 5.5 텍스트 기반 도구 시스템
+
+OpenClaw gateway가 function calling 미지원이므로, LLM이 `<tool:name>params</tool>` XML 태그를 출력하면 봇이 파싱/실행/결과 피드백하는 텍스트 기반 도구 체계.
+
+```
+사용자 질문 → LLM 호출
+                │
+                ▼
+        LLM 응답에 <tool:...> 태그 있음?
+           │                  │
+          없음               있음
+           │                  │
+           ▼                  ▼
+      최종 답변 전송    도구 실행 → 결과 수집
+                              │
+                              ▼
+                     결과를 LLM에 피드백
+                     (최대 3턴 반복)
+                              │
+                              ▼
+                     최종 답변 전송
+                     (tool 태그 제거)
+```
+
+**사용 가능 도구:**
+
+| 도구 | 용도 | 제한 |
+|------|------|------|
+| `read_file` | 프로젝트 파일 읽기 | 200줄, `_safe_path()` 경로 검증 |
+| `list_files` | glob 패턴 파일 검색 | 50개 |
+| `search_code` | grep 코드 검색 | 30건, glob 필터 지원 |
+| `read_logs` | bot.log 최근 로그 | 200줄 |
+| `query_db` | SQLite 쿼리 실행 | SELECT만, 50행 |
+| `write_checklist` | 수정 체크리스트 생성 | `docs/checklists/` 폴더, `.md`만 |
+
+**안전장치:**
+- `_safe_path()`: PROJECT_ROOT 밖 경로 접근 차단
+- DB: SELECT만 허용 (INSERT/UPDATE/DELETE/DROP/ALTER 차단)
+- 쓰기: `docs/checklists/` 폴더 한정, `.md` 파일만
+- 도구 턴: 최대 3턴 (무한루프 방지)
+- `_call_llm_messages()`: max_tokens=1000
+
+**사용 예시:**
+```
+사용자: "calculate_take_profits 함수 보여줘"
+LLM: <tool:search_code>calculate_take_profits</tool>
+봇: [결과 피드백]
+LLM: "calculate_take_profits 함수는 src/pipeline/phase5_execute.py에 있습니다..."
+
+사용자: "SL 로직 분석해서 체크리스트 만들어줘"
+LLM: <tool:read_file>src/pipeline/phase5_execute.py:100-150</tool>
+봇: [결과 피드백]
+LLM: <tool:write_checklist>sl_improvement.md
+# SL 로직 개선 체크리스트
+- [ ] ...
+</tool>
+```
+
 ---
 
 ## 6. 비용 / 성능 요약
