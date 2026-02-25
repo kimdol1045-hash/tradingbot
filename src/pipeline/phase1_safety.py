@@ -347,12 +347,6 @@ def phase1_safety(
     current_mdd = agent_state.get("current_mdd", 0.0)
     mdd_mode = get_mdd_mode(current_mdd)
 
-    if mdd_mode == "emergency":
-        return SafetyResult(
-            blocked=True, stage="NORMAL", severity=0.0, mdd_mode="emergency",
-            action="CLOSE_ALL_AND_HALT", reason="MDD_EMERGENCY",
-        )
-
     # ━━━━ 1A-2: ATR 급변 감지 ━━━━
     vol_override, vol_alert = _detect_atr_divergence(highs, lows, closes, stats)
 

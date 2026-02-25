@@ -455,6 +455,16 @@ class PipelineRunner:
                 logger.debug("[%s/%s] Skipped: rejection cooldown active", agent_id, symbol)
                 continue
 
+            # Skip if this agent+symbol is in SL cooldown (recent SL hit)
+            if self.pm and self.pm.is_sl_cooldown(agent_id, symbol):
+                logger.debug("[%s/%s] Skipped: SL cooldown active (2h)", agent_id, symbol)
+                continue
+
+            # Cross-agent symbol limit: max 2 agents on same symbol
+            if self.pm and self.pm.count_cross_agent_positions(symbol) >= 2:
+                logger.debug("[%s/%s] Skipped: cross-agent limit (2 agents already)", agent_id, symbol)
+                continue
+
             # Inject AI advisor multipliers, max leverage map, and coin count into agent state
             self.agent_states[agent_id]["ai_leverage_mult"] = ai_lev_mult
             self.agent_states[agent_id]["ai_sl_mult"] = ai_sl_mult

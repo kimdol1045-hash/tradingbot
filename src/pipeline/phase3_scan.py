@@ -272,10 +272,11 @@ def phase3_scan(
     min_score = regime_min_scores.get(regime, default_min)
     found = score >= min_score and primary_type is not None
 
-    # T5 POC + SIDEWAYS filter: historically 0% win rate in sideways regime
-    if found and primary_type == "T5_POC_MAGNET" and regime == "SIDEWAYS":
+    # Data-driven SIDEWAYS regime filters (historically losing signal types)
+    _SIDEWAYS_BLOCKED = {"T5_POC_MAGNET", "T3_BREAKOUT_RETEST", "T4_TRENDLINE_BREAK"}
+    if found and primary_type in _SIDEWAYS_BLOCKED and regime == "SIDEWAYS":
+        logger.info("%s blocked in SIDEWAYS regime (data-driven filter)", primary_type)
         found = False
-        logger.info("T5_POC_MAGNET blocked in SIDEWAYS regime (data-driven filter)")
 
     # Build pattern result
     pattern_target_atr = None

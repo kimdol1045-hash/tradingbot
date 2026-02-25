@@ -24,7 +24,7 @@ PF_ADJUSTMENTS = {
     "2.0_to_2.5": 0,
     "1.5_to_2.0": 5,
     "1.0_to_1.5": 10,
-    "below_1.0": 15,
+    "below_1.0": 0,
 }
 
 
@@ -441,12 +441,7 @@ def phase4_gate(
 
     pass_threshold = max(45.0, min(base + score_adj + pf_adj, 95.0))
 
-    # PF Anti-Stall: if PF < 1.0, allow exploration trades
-    pf_anti_stall = gate_params.get("pf_anti_stall", {})
-    if rolling_pf < 1.0 and pf_anti_stall.get("prefer_size_over_threshold", True):
-        exploration_mult = pf_anti_stall.get("exploration_size_mult", 0.3)
-        size_mult *= exploration_mult
-        pass_threshold = max(pass_threshold - 10, 45.0)
+    # PF < 1.0: keep threshold strict (no exploration discount)
 
     passed = final_score >= pass_threshold
 

@@ -4,12 +4,12 @@
   "dna": {
     "hurst_window": 30,
     "weights": {
-      "hurst": 0.26,
-      "entropy": 0.21,
-      "liquidation": 0.15,
-      "funding": 0.13,
-      "oi_momentum": 0.15,
-      "liq_density": 0.1
+      "hurst": 0.22,
+      "entropy": 0.28,
+      "liquidation": 0.16,
+      "funding": 0.12,
+      "oi_momentum": 0.1,
+      "liq_density": 0.12
     }
   },
   "mtf_weights": {
@@ -21,12 +21,12 @@
   },
   "scan": {
     "regime_min_scores": {
-      "STRONG_UPTREND": 0,
-      "WEAK_UPTREND": 0,
-      "SIDEWAYS": 0,
-      "WEAK_DOWNTREND": 0,
-      "STRONG_DOWNTREND": 0,
-      "VOLATILE": 0
+      "STRONG_UPTREND": 15,
+      "WEAK_UPTREND": 20,
+      "SIDEWAYS": 25,
+      "WEAK_DOWNTREND": 20,
+      "STRONG_DOWNTREND": 15,
+      "VOLATILE": 30
     }
   },
   "gate": {
@@ -34,10 +34,10 @@
     "base_pass_scores": {
       "STRONG_UPTREND": 30,
       "WEAK_UPTREND": 35,
-      "SIDEWAYS": 40,
+      "SIDEWAYS": 55,
       "WEAK_DOWNTREND": 35,
       "STRONG_DOWNTREND": 30,
-      "VOLATILE": 50
+      "VOLATILE": 70
     },
     "pf_anti_stall": {
       "min_daily_trades": 2,
@@ -104,7 +104,7 @@
       40
     ],
     "max_hold_candles": 36,
-    "sl_atr_mult": 1.8,
+    "sl_atr_mult": 2.2,
     "max_loss_pct": 0.04,
     "risk_per_trade": 0.01,
     "risk_mode": "dynamic",

@@ -284,22 +284,11 @@ MDD_POLICIES: dict[str, dict] = {
         "score_adj": 5,
     },
     "defensive": {
-        "range": [0.05, 0.08],
+        "range": [0.05, 1.00],
         "leverage_mult": 0.4,
         "size_mult": 0.5,
         "score_adj": 15,
         "allowed_regimes": ["STRONG_UPTREND", "STRONG_DOWNTREND"],
-    },
-    "survival": {
-        "range": [0.08, 0.15],
-        "leverage_mult": 0.2,
-        "size_mult": 0.3,
-        "score_adj": 25,
-        "max_positions": 1,
-    },
-    "emergency": {
-        "range": [0.15, 1.00],
-        "halt_hours": 24,
     },
 }
 

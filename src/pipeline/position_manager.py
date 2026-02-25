@@ -60,6 +60,9 @@ class PositionManager:
         # Rejection cooldown: {(agent_id, symbol): expiry_ts}
         self._rejection_cooldown: dict[tuple[str, str], float] = {}
         self._rejection_cooldown_sec: float = 1800.0  # 30 min cooldown after margin rejection
+        # SL cooldown: {(agent_id, symbol): expiry_ts} — prevent re-entry after SL hit
+        self._sl_cooldown: dict[tuple[str, str], float] = {}
+        self._sl_cooldown_sec: float = 7200.0  # 2 hours
 
     def is_rejected_cooldown(self, agent_id: str, symbol: str) -> bool:
         """Check if agent+symbol is in rejection cooldown (recent margin failure)."""
@@ -70,6 +73,23 @@ class PositionManager:
         # Clean up expired entry
         self._rejection_cooldown.pop(key, None)
         return False
+
+    def is_sl_cooldown(self, agent_id: str, symbol: str) -> bool:
+        """Check if agent+symbol is in SL cooldown (recent SL hit)."""
+        key = (agent_id, symbol)
+        expiry = self._sl_cooldown.get(key, 0)
+        if expiry and time.time() < expiry:
+            return True
+        self._sl_cooldown.pop(key, None)
+        return False
+
+    def count_cross_agent_positions(self, symbol: str) -> int:
+        """Count how many agents have an open position on this symbol."""
+        agents = set()
+        for pos in self.positions.values():
+            if pos.status in ("pending", "open") and pos.signal.symbol == symbol:
+                agents.add(pos.signal.agent_id)
+        return len(agents)
 
     def submit_signal(self, signal: Signal):
         """Queue a new signal for execution."""
@@ -418,6 +438,15 @@ class PositionManager:
         # Clear rejection cooldown for this agent+symbol (margin freed up)
         self._rejection_cooldown.pop((sig.agent_id, sig.symbol), None)
 
+        # Set SL cooldown to prevent rapid re-entry after stop loss
+        if reason == "SL_HIT":
+            key = (sig.agent_id, sig.symbol)
+            self._sl_cooldown[key] = time.time() + self._sl_cooldown_sec
+            logger.info(
+                "SL cooldown set: %s %s (%.0fs)",
+                sig.agent_id, sig.symbol, self._sl_cooldown_sec,
+            )
+
         # Record exit in DB via executor
         if self.executor:
             margin = (sig.notional_usd / sig.leverage) if sig.leverage > 0 and sig.notional_usd > 0 else 0
@@ -704,9 +733,9 @@ class PositionManager:
                     pos.trailing_active = True
                     be_offset = entry_price * 0.001
                     if direction == "LONG":
-                        pos.trailing_sl = entry_price + be_offset
+                        pos.trailing_sl = entry_price - be_offset  # below entry (breakeven lock)
                     else:
-                        pos.trailing_sl = entry_price - be_offset
+                        pos.trailing_sl = entry_price + be_offset  # above entry (breakeven lock)
 
                 self.positions[signal_id] = pos
                 restored += 1
