@@ -273,7 +273,7 @@ def phase3_scan(
     found = score >= min_score and primary_type is not None
 
     # Data-driven SIDEWAYS regime filters (historically losing signal types)
-    _SIDEWAYS_BLOCKED = {"T5_POC_MAGNET", "T3_BREAKOUT_RETEST", "T4_TRENDLINE_BREAK"}
+    _SIDEWAYS_BLOCKED = {"T5_POC_MAGNET", "T4_TRENDLINE_BREAK"}
     if found and primary_type in _SIDEWAYS_BLOCKED and regime == "SIDEWAYS":
         logger.info("%s blocked in SIDEWAYS regime (data-driven filter)", primary_type)
         found = False

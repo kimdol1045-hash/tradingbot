@@ -88,37 +88,77 @@ def detect_t2_trendline_reaction(
 def detect_t3_breakout_retest(
     candles: list[dict], sr_levels: list[dict], atr_val: float,
 ) -> dict | None:
-    """T3: Price breaks an S/R level then retests it from the other side."""
-    if not sr_levels or len(candles) < 5:
+    """T3: Price breaks an S/R level, moves away, then retests with rejection."""
+    if not sr_levels or len(candles) < 10:
         return None
 
-    close = candles[-1]["close"]
-    closes = [c["close"] for c in candles[-5:]]
+    current = candles[-1]
+    close = current["close"]
 
     for level in sr_levels:
         lp = level["price"]
-        # Check if recent candles crossed the level
-        crossed_above = any(c < lp for c in closes[:-2]) and closes[-2] > lp
-        crossed_below = any(c > lp for c in closes[:-2]) and closes[-2] < lp
 
+        # ① Breakout detection (lookback 10 candles, at least 3 candles ago)
+        breakout_idx = None
+        breakout_dir = None
+        for i in range(-10, -3):
+            c_prev = candles[i]["close"]
+            c_next = candles[i + 1]["close"]
+            if c_prev < lp and c_next > lp:
+                breakout_idx = i + 1
+                breakout_dir = "LONG"
+            elif c_prev > lp and c_next < lp:
+                breakout_idx = i + 1
+                breakout_dir = "SHORT"
+
+        if breakout_idx is None:
+            continue
+
+        # ② Post-breakout move-away confirmation
+        post_breakout = candles[breakout_idx:]
+        if breakout_dir == "LONG":
+            max_away = max(c["high"] for c in post_breakout)
+            moved_away = (max_away - lp) > atr_val * 0.3
+        else:
+            min_away = min(c["low"] for c in post_breakout)
+            moved_away = (lp - min_away) > atr_val * 0.3
+
+        if not moved_away:
+            continue
+
+        # ③ Pullback confirmation — price returned near the level
         distance = abs(close - lp)
         if distance > atr_val * 0.5:
             continue
 
         proximity = 1.0 - (distance / (atr_val * 0.5))
 
-        if crossed_above and close >= lp:
-            # Broke above resistance, retesting as support
-            return {
-                "type": "T3_BREAKOUT_RETEST", "direction": "LONG",
-                "score": min(proximity * 20 + level["strength"] * 10, 30),
-            }
-        elif crossed_below and close <= lp:
-            # Broke below support, retesting as resistance
-            return {
-                "type": "T3_BREAKOUT_RETEST", "direction": "SHORT",
-                "score": min(proximity * 20 + level["strength"] * 10, 30),
-            }
+        # ④ Rejection confirmation — wick touches level, close in entry direction
+        if breakout_dir == "LONG":
+            wick_touch = current["low"] <= lp + atr_val * 0.15
+            close_ok = close > lp
+        else:
+            wick_touch = current["high"] >= lp - atr_val * 0.15
+            close_ok = close < lp
+
+        if not (wick_touch and close_ok):
+            continue
+
+        # ⑤ Volume decrease — retest volume < breakout volume
+        breakout_vol = candles[breakout_idx]["volume"]
+        retest_vol = current["volume"]
+        vol_ok = breakout_vol <= 0 or retest_vol < breakout_vol * 1.5
+
+        if not vol_ok:
+            continue
+
+        score = min(proximity * 20 + level["strength"] * 10, 30)
+        return {
+            "type": "T3_BREAKOUT_RETEST",
+            "direction": breakout_dir,
+            "score": score,
+        }
+
     return None
 
 
