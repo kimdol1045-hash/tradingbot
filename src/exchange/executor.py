@@ -412,15 +412,21 @@ class OrderExecutor:
             logger.exception("Close position error")
             return OrderResult(success=False, error=str(e))
 
-    async def get_exchange_positions(self, agent_id: str = "") -> list[dict]:
-        """Fetch current positions from exchange for a specific agent wallet."""
+    async def get_exchange_positions(self, agent_id: str = "") -> list[dict] | None:
+        """Fetch current positions from exchange for a specific agent wallet.
+
+        Returns:
+            list[dict]: Positions on success (may be empty if genuinely no positions).
+            None: On API failure — callers MUST treat None as "unknown state"
+                  and skip any reconciliation/SL logic to avoid false liquidation.
+        """
         address = self._get_address(agent_id)
         if self.dry_run or not address:
             return []
 
         self._ensure_info()
         if self._info is None:
-            return []
+            return None
 
         try:
             state = await asyncio.to_thread(
@@ -443,7 +449,7 @@ class OrderExecutor:
             return positions
         except Exception:
             logger.exception("Failed to fetch exchange positions for %s", agent_id or "legacy")
-            return []
+            return None
 
     async def get_trigger_orders(self, agent_id: str = "") -> list[dict]:
         """Fetch open trigger orders (SL/TP) for an agent wallet."""

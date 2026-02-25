@@ -187,6 +187,16 @@ async def reconcile_on_startup(
         first_agent = agent_ids[0] if agent_ids else ""
         exchange_positions = await executor.get_exchange_positions(first_agent)
 
+        # API failure → None: skip this wallet entirely to preserve positions
+        if exchange_positions is None:
+            logger.error(
+                "API FAILURE: cannot fetch positions for wallet %s (agents=%s) "
+                "— skipping reconciliation to protect existing positions",
+                wallet_address[:10], agent_ids,
+            )
+            total["errors"] += 1
+            continue
+
         logger.info(
             "Reconciling wallet %s... (agents=%s, exchange_positions=%d)",
             wallet_address[:10], agent_ids, len(exchange_positions),

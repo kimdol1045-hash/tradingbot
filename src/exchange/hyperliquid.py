@@ -322,9 +322,25 @@ def update_leverage(
     return exchange.update_leverage(leverage, symbol, is_cross)
 
 
-def get_user_state(info: Info, address: str) -> dict[str, Any]:
-    """Get user's positions, margin, and withdrawable balance."""
-    return info.user_state(address)
+def get_user_state(info: Info, address: str, max_retries: int = 3) -> dict[str, Any]:
+    """Get user's positions, margin, and withdrawable balance.
+
+    Retries on 429 rate limit with exponential backoff.
+    Raises on persistent failure so callers can distinguish API error from empty state.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            return info.user_state(address)
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries:
+                wait = 2 ** attempt
+                logger.warning(
+                    "get_user_state rate limited, retrying in %ds (%d/%d)",
+                    wait, attempt, max_retries,
+                )
+                time.sleep(wait)
+            else:
+                raise
 
 
 def fetch_wallet_balance(info: Info, address: str) -> float:
@@ -358,9 +374,25 @@ def get_open_orders(info: Info, address: str) -> list[dict]:
     return info.open_orders(address)
 
 
-def get_frontend_open_orders(info: Info, address: str) -> list[dict]:
-    """Get user's open orders including trigger (SL/TP) orders."""
-    return info.frontend_open_orders(address)
+def get_frontend_open_orders(info: Info, address: str, max_retries: int = 3) -> list[dict]:
+    """Get user's open orders including trigger (SL/TP) orders.
+
+    Retries on 429 rate limit with exponential backoff.
+    Raises on persistent failure so callers can distinguish API error from empty state.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            return info.frontend_open_orders(address)
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries:
+                wait = 2 ** attempt
+                logger.warning(
+                    "get_frontend_open_orders rate limited, retrying in %ds (%d/%d)",
+                    wait, attempt, max_retries,
+                )
+                time.sleep(wait)
+            else:
+                raise
 
 
 # ═══ Asset Metadata Cache (szDecimals, maxLeverage) ═══

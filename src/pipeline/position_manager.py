@@ -10,7 +10,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from src.notify.telegram import notify_exit, notify_fill, notify_tp_hit
+from src.notify.telegram import notify_exit, notify_fill, notify_tp_hit, notify_tp_timeout
 from src.pipeline.models import Signal
 from src.utils.async_helpers import safe_fire_and_forget
 from src.utils.config import AGENT_PROFILES
@@ -32,6 +32,7 @@ class ManagedPosition:
     trailing_active: bool = False
     trailing_sl: float = 0.0
     tp_hits: int = 0
+    last_tp_hit_ts: float = 0.0   # Unix timestamp of last TP hit (for timeout)
     remaining_qty: float = 0.0
     candles_held: int = 0
     pnl: float = 0.0
@@ -222,6 +223,7 @@ class PositionManager:
                     break
 
                 pos.tp_hits += 1
+                pos.last_tp_hit_ts = time.time()
                 ratio = tp.get("ratio", 0)
                 close_qty = pos.fill_qty * ratio / 100.0 if ratio > 0 else 0
 
@@ -274,7 +276,7 @@ class PositionManager:
             # Persist TP state once after all hits processed (avoids race condition)
             if pos.tp_hits > tp_hits_before:
                 safe_fire_and_forget(
-                    self._update_tp_state(sig.signal_id, pos.tp_hits, pos.remaining_qty),
+                    self._update_tp_state(sig.signal_id, pos.tp_hits, pos.remaining_qty, pos.last_tp_hit_ts),
                     name="update_tp_state",
                 )
 
@@ -302,15 +304,15 @@ class PositionManager:
         except Exception:
             logger.exception("TP%d close error: %s %s", tp_level, sig.symbol, sig.signal_id[:8])
 
-    async def _update_tp_state(self, signal_id: str, tp_hits: int, remaining_qty: float):
+    async def _update_tp_state(self, signal_id: str, tp_hits: int, remaining_qty: float, last_tp_hit_ts: float = 0.0):
         """Persist TP state to DB so restarts don't re-fire TPs."""
         try:
             import aiosqlite
             from src.utils.config import DB_PATH
             async with aiosqlite.connect(str(DB_PATH)) as db:
                 await db.execute(
-                    "UPDATE positions SET tp_hits = ?, remaining_qty = ? WHERE signal_id = ?",
-                    (tp_hits, remaining_qty, signal_id),
+                    "UPDATE positions SET tp_hits = ?, remaining_qty = ?, last_tp_hit_ts = ? WHERE signal_id = ?",
+                    (tp_hits, remaining_qty, last_tp_hit_ts, signal_id),
                 )
                 await db.commit()
         except Exception:
@@ -385,9 +387,50 @@ class PositionManager:
             except Exception:
                 logger.warning("SL sync failed: %s", pos.signal.signal_id[:8], exc_info=True)
 
-    def check_timeouts(self):
-        """Disabled — positions are managed by exchange-side SL/TP only."""
-        pass
+    def check_timeouts(self, prices: dict[str, float]):
+        """Close positions that haven't hit the next TP within the agent-specific timeout."""
+        from src.utils.params import load_params
+
+        now = time.time()
+        for pos in list(self.positions.values()):
+            if pos.status != "open" or pos.tp_hits == 0 or pos.last_tp_hit_ts == 0:
+                continue
+            if pos.tp_hits >= len(pos.signal.take_profits):
+                continue  # All TPs already hit
+
+            params = load_params(pos.signal.agent_id)
+            timeout = params.get("exit", {}).get("tp_timeout_sec", 10800)
+            elapsed = now - pos.last_tp_hit_ts
+            if elapsed < timeout:
+                continue
+
+            price = prices.get(pos.signal.symbol, 0)
+            if price <= 0:
+                continue
+
+            logger.info(
+                "TP_TIMEOUT: %s %s — TP%d hit %.0fs ago (timeout=%ds), closing remaining qty=%.6f",
+                pos.signal.symbol, pos.signal.signal_id[:8],
+                pos.tp_hits, elapsed, timeout, pos.remaining_qty,
+            )
+
+            # Execute market close on exchange
+            if pos.remaining_qty > 0 and self.executor and not self.dry_run:
+                safe_fire_and_forget(
+                    self.executor.close_position(
+                        pos.signal.symbol, pos.signal.direction, abs(pos.remaining_qty),
+                        reason="TP_TIMEOUT", agent_id=pos.signal.agent_id,
+                    ),
+                    name="tp_timeout_close",
+                )
+
+            # Telegram notification
+            safe_fire_and_forget(
+                notify_tp_timeout(pos.signal, pos.tp_hits, elapsed, pos.remaining_qty, price),
+                name="notify_tp_timeout",
+            )
+
+            self._close_position(pos, price, "TP_TIMEOUT")
 
     def emergency_tighten(self, stage: str):
         """Tighten SL for all open positions when Safety stage escalates."""
@@ -550,6 +593,15 @@ class PositionManager:
         for agent_id, positions in agent_positions.items():
             try:
                 exchange_pos = await self.executor.get_exchange_positions(agent_id)
+
+                # API failure → None: skip SL check to avoid false SL_HIT
+                if exchange_pos is None:
+                    logger.warning(
+                        "SL check skipped for %s: API failure (positions preserved)",
+                        agent_id,
+                    )
+                    continue
+
                 exchange_keys = {
                     f"{p['symbol']}_{p['direction']}" for p in exchange_pos
                 }
@@ -586,15 +638,13 @@ class PositionManager:
                 if prices:
                     self._check_tp_hits(prices)
                     self.update_trailing_stops(prices)
+                    self.check_timeouts(prices)
                     await self._sync_sl_to_exchange()
 
                 # Check SL hits via exchange (every 6th cycle ≈ 30s)
                 self._cycle_count += 1
                 if self._cycle_count % 6 == 0:
                     await self._check_sl_hits()
-
-                # Check timeouts
-                self.check_timeouts()
 
                 # Clean up old closed positions (keep last 100)
                 closed = [k for k, v in self.positions.items() if v.status == "closed"]
@@ -659,7 +709,7 @@ class PositionManager:
                 "SELECT p.signal_id, p.agent_id, p.symbol, p.direction, "
                 "p.entry_price, p.size_usd, p.sl_pct, p.entry_time, p.exchange_order_id, "
                 "t.leverage, t.notional_usd, t.margin_usd, "
-                "p.tp_hits, p.remaining_qty "
+                "p.tp_hits, p.remaining_qty, p.last_tp_hit_ts "
                 "FROM positions p "
                 "LEFT JOIN trades t ON p.signal_id = t.signal_id "
                 "WHERE p.status = 'OPEN'"
@@ -672,7 +722,7 @@ class PositionManager:
                 (signal_id, agent_id, symbol, direction, entry_price,
                  size_usd, sl_pct, entry_time, exchange_order_id,
                  leverage, notional_usd, margin_usd,
-                 db_tp_hits, db_remaining_qty) = row
+                 db_tp_hits, db_remaining_qty, db_last_tp_hit_ts) = row
 
                 if signal_id in self.positions:
                     continue  # Already tracked
@@ -726,6 +776,7 @@ class PositionManager:
                     filled_ts=entry_time or 0,
                     remaining_qty=db_remaining_qty if db_remaining_qty and db_remaining_qty > 0 else fill_qty,
                     tp_hits=db_tp_hits or 0,
+                    last_tp_hit_ts=db_last_tp_hit_ts or 0.0,
                 )
 
                 # Restore trailing stop state if TP1+ was already hit
