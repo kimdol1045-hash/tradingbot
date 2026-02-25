@@ -457,8 +457,8 @@ class DataCollector:
                         )
                 except Exception:
                     logger.exception("Backfill failed: %s %s", symbol, tf)
-            # Rate limit: pause between symbols (every 3 symbols, longer pause)
+            # Rate limit: pause between symbols to avoid 429
             if (i + 1) % 3 == 0:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(2.0)
             else:
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.3)
