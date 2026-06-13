@@ -13,6 +13,9 @@ build/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+logs/
+reports/*.log
+reports/*.txt
 
 # IDE
 .vscode/
@@ -26,6 +29,24 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Screener state
+.screener_last_run
+
+# Local assistant/workspace state
+.omc/
+.openclaw/
+.agents/
+.codex/
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+MEMORY.md
+SOUL.md
+TOOLS.md
+USER.md
+memory/
 
 # Claude Code
 .claude/

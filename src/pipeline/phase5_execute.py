@@ -88,8 +88,8 @@ def calculate_leverage(
     if gate_result.mdd_mode not in ("survival", "emergency"):
         lev *= agent_state.get("ai_leverage_mult", 1.0)
 
-    # Min 5x for futures (survival mode allows 3x)
-    min_lev = 5.0 if gate_result.mdd_mode != "survival" else 3.0
+    # Min 3x for futures (allows low-leverage coins like CC)
+    min_lev = 3.0
     lev = max(min_lev, min(lev, float(max_leverage)))
     return round(lev, 1)
 
@@ -105,6 +105,7 @@ def calculate_stop_loss(
     mdd_mode: str,
     params: dict,
     agent_state: dict | None = None,
+    regime: str = "SIDEWAYS",
 ) -> float:
     """
     Calculate stop loss price.
@@ -122,8 +123,17 @@ def calculate_stop_loss(
         "normal": 1.0, "caution": 1.15, "defensive": 1.3, "survival": 1.0,
     })
 
-    # Minimum SL distance (% of entry price) — prevents excessively tight SL
-    min_sl_pct = exit_params.get("min_sl_pct", 0.015)  # default 1.5%
+    # Regime-aware minimum SL distance — SIDEWAYS/VOLATILE need wider floor
+    _MIN_SL_BY_REGIME = {
+        "STRONG_UPTREND": 0.012,    # 1.2% — 강한 트렌드는 타이트 OK
+        "STRONG_DOWNTREND": 0.012,
+        "WEAK_UPTREND": 0.015,      # 1.5% — 기존 기본값
+        "WEAK_DOWNTREND": 0.015,
+        "SIDEWAYS": 0.020,          # 2.0% — noise 대비 여유 확보
+        "VOLATILE": 0.025,          # 2.5% — 높은 변동성
+    }
+    default_min = exit_params.get("min_sl_pct", 0.015)
+    min_sl_pct = _MIN_SL_BY_REGIME.get(regime, default_min)
     min_distance = entry_price * min_sl_pct
 
     # ATR-based raw SL
@@ -398,6 +408,7 @@ def phase5_execute(
         scan_result.sr_levels, safety_result,
         gate_result.mdd_mode, params,
         agent_state=agent_state,
+        regime=regime_result.regime,
     )
 
     # Guard: SL must be different from entry

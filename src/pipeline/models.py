@@ -81,7 +81,7 @@ class GateResult:
     mdd_mode: str = "normal"
     leverage_mult: float = 1.0
     size_mult: float = 1.0  # MDD + exposure reduction combined
-    rolling_pf: float = 0.0
+    rolling_pf: float | None = None
 
 
 @dataclass

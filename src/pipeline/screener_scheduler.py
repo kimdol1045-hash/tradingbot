@@ -7,11 +7,9 @@ Configurable via SCREENER_INTERVAL_HOURS and SCREENER_START_HOUR_UTC env vars.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from src.notify.telegram import notify_system
 from src.utils.config import (
@@ -28,6 +26,8 @@ logger = logging.getLogger(__name__)
 class ScreenerScheduler:
     """Periodically runs the coin screener and updates the symbol pool."""
 
+    _STATE_FILE = PROJECT_ROOT / ".screener_last_run"
+
     def __init__(
         self,
         interval_hours: int = SCREENER_INTERVAL_HOURS,
@@ -40,11 +40,23 @@ class ScreenerScheduler:
         self.min_volume_m = min_volume_m
         self.collector = collector
         self._running = True
-        self._last_run_ts: float = 0
+        self._last_run_ts: float = self._load_last_run_ts()
         self._output_path = str(PROJECT_ROOT / "symbols.json")
 
     def stop(self):
         self._running = False
+
+    def _load_last_run_ts(self) -> float:
+        try:
+            return float(self._STATE_FILE.read_text().strip())
+        except (FileNotFoundError, ValueError):
+            return 0
+
+    def _save_last_run_ts(self):
+        try:
+            self._STATE_FILE.write_text(str(self._last_run_ts))
+        except OSError:
+            logger.warning("Failed to persist screener last_run_ts")
 
     async def run_loop(self):
         """Main scheduler loop. Checks every 5 minutes if it's time to run."""
@@ -135,7 +147,8 @@ class ScreenerScheduler:
 
         if not backtest_results:
             logger.warning("Screener: no backtest results")
-            self._last_run_ts = time.time()  # Mark run time even on empty results
+            self._last_run_ts = time.time()
+            self._save_last_run_ts()
             try:
                 await notify_system("⚠️ 스크리너 완료: 백테스트 결과 없음 (다음 주기 재시도)")
             except Exception:
@@ -173,4 +186,5 @@ class ScreenerScheduler:
 
         # Mark run time AFTER successful completion
         self._last_run_ts = time.time()
+        self._save_last_run_ts()
         logger.info("━━━ Screener scheduler: completed in %.1f min ━━━", elapsed_min)

@@ -1,7 +1,7 @@
 """
 Phase 2: READ — 시장 체제 분류 + 전환 핸들링.
 6-DNA 계산 (Hurst, Entropy, Liquidation, Funding, OI Momentum, Liquidation Density),
-z-score 정규화, 에이전트별 Hurst window, regime classification, hysteresis.
+percentile rank 정규화, 에이전트별 Hurst window, regime classification, hysteresis.
 Returns RegimeResult.
 ~100ms target.
 """
@@ -16,8 +16,8 @@ from src.pipeline.models import RegimeResult
 from src.utils.indicators import (
     candles_to_arrays,
     hurst_exponent,
+    percentile_rank,
     price_direction,
-    rolling_zscore,
     shannon_entropy,
 )
 
@@ -27,30 +27,10 @@ logger = logging.getLogger(__name__)
 
 def _raw_to_score(component: str, raw_value: float) -> float:
     """
-    Map raw DNA value directly to 0~100 when z-score history is unavailable.
-    Each component has its own natural range.
+    Fallback when percentile-rank history is unavailable (cold start).
+    Returns neutral 50.0 — no statistical basis for directional opinion.
     """
-    if component == "hurst":
-        # hurst * direction: range approx [-1.0, +1.0]
-        # +1 = strong uptrend, -1 = strong downtrend, 0 = random/sideways
-        return float(np.clip((raw_value + 1.0) / 2.0 * 100, 0, 100))
-    elif component == "entropy":
-        # range [0, 1]: high = uncertain. Invert so high entropy → low score
-        return float(np.clip((1.0 - raw_value) * 100, 0, 100))
-    elif component == "liquidation":
-        # range [0, 1]: high = risky. Invert so high pressure → low score
-        return float(np.clip((1.0 - raw_value) * 100, 0, 100))
-    elif component == "funding":
-        # range [-1, +1]: positive = short favorable
-        return float(np.clip((raw_value + 1.0) / 2.0 * 100, 0, 100))
-    elif component == "oi_momentum":
-        # range [-1, +1]: positive = bullish
-        return float(np.clip((raw_value + 1.0) / 2.0 * 100, 0, 100))
-    elif component == "liq_density":
-        # range [0, 1]: high = dangerous. Invert
-        return float(np.clip((1.0 - raw_value) * 100, 0, 100))
-    else:
-        return 50.0
+    return 50.0
 
 
 # ═══ Regime Definitions ═══
@@ -150,8 +130,6 @@ def _calculate_liquidation_pressure(candles: list[dict], window: int = 20) -> fl
     arr = candles_to_arrays(recent)
     closes = arr["close"]
     volumes = arr["volume"]
-    highs = arr["high"]
-    lows = arr["low"]
 
     if len(closes) < 5:
         return 0.0
@@ -208,7 +186,7 @@ def _calculate_dna(
 ) -> dict:
     """
     Calculate 6-DNA components + weighted composite score.
-    All components are z-score normalized to 0~100.
+    All components are percentile-rank normalized to 0~100.
 
     Returns:
         {score, components, weights_used, confidence}
@@ -231,18 +209,21 @@ def _calculate_dna(
     raw["oi_momentum"] = _calculate_oi_momentum(candles)
     raw["liq_density"] = _calculate_liquidation_density(candles)
 
-    # Z-score normalize each component (or use raw fallback)
+    # Percentile-rank normalize each component (or neutral fallback)
     history = history or {}
     components = {}
-    has_history = False
+    history_count = 0
     for key, val in raw.items():
         hist = np.array(history.get(key, []), dtype=np.float64)
         if len(hist) >= 10:
-            components[key] = rolling_zscore(val, hist)
-            has_history = True
+            components[key] = percentile_rank(val, hist)
+            history_count += 1
         else:
-            # Fallback: map raw value directly to 0~100 scale
-            components[key] = _raw_to_score(key, val)
+            components[key] = 50.0  # Cold start: neutral
+
+    cold_start = history_count < len(raw) // 2
+    if cold_start:
+        logger.debug("DNA cold start: %d/%d components have history", history_count, len(raw))
 
     # Re-normalize weights to sum = 1.0
     w_sum = sum(weights.get(k, 0) for k in components)
@@ -258,6 +239,7 @@ def _calculate_dna(
         "components": components,
         "raw": raw,
         "weights_used": norm_weights,
+        "cold_start": cold_start,
     }
 
 
@@ -283,21 +265,21 @@ def _classify_regime(dna: dict) -> tuple[str, float]:
         return "VOLATILE", min(vol_intensity, 1.0)
 
     # Direction-based classification + regime-specific confidence
-    if score >= 70:
+    if score >= 68:
         regime = "STRONG_UPTREND"
-        confidence = min((score - 70) / 15, 1.0)      # 70→0.0, 85→1.0
-    elif score >= 58:
+        confidence = min((score - 68) / 20, 1.0)       # 68→0.0, 88→1.0
+    elif score >= 55:
         regime = "WEAK_UPTREND"
-        confidence = 1.0 - abs(score - 64) / 6         # 64→1.0, 58/70→0.0
-    elif score >= 42:
+        confidence = 1.0 - abs(score - 61.5) / 6.5     # 61.5→1.0, 55/68→0.0
+    elif score >= 45:
         regime = "SIDEWAYS"
-        confidence = 1.0 - abs(score - 50) / 8          # 50→1.0, 42/58→0.0
-    elif score >= 30:
+        confidence = 1.0 - abs(score - 50) / 5          # 50→1.0, 45/55→0.0
+    elif score >= 32:
         regime = "WEAK_DOWNTREND"
-        confidence = 1.0 - abs(score - 36) / 6         # 36→1.0, 30/42→0.0
+        confidence = 1.0 - abs(score - 38.5) / 6.5     # 38.5→1.0, 32/45→0.0
     else:
         regime = "STRONG_DOWNTREND"
-        confidence = min((30 - score) / 15, 1.0)       # 15→1.0, 30→0.0
+        confidence = min((32 - score) / 20, 1.0)        # 32→0.0, 12→1.0
 
     return regime, max(0.0, min(confidence, 1.0))
 
@@ -490,6 +472,12 @@ def phase2_read(
         tf_hist = dna_history.get(tf, {})
         dna = _calculate_dna(candles, dna_params, tf_hist)
         regime, confidence = _classify_regime(dna)
+
+        # Cold start: confidence → 0 until history builds (triggers R5 block)
+        if dna.get("cold_start", False):
+            confidence = 0.0
+            logger.info("Cold start [%s]: regime=%s forced conf=0.0", tf, regime)
+
         tf_results[tf] = (regime, confidence)
 
         # Accumulate raw DNA values into history for z-score normalization

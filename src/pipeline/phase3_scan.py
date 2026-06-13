@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
-
 from src.pipeline.models import PatternMatch, PatternResult, ScanResult
 from src.pipeline.scan.candlestick import detect_candlestick_patterns
 from src.pipeline.scan.chart_patterns import detect_chart_patterns
@@ -55,6 +53,12 @@ MTF_BONUS = {"A": 15, "B": 10, "C": 5, "D": -3, "F": -8, "NONE": 0}
 
 PATTERN_BONUS_CAP = 25
 DIRECTION_CONFLICT_PENALTY = -10
+
+# Reversal patterns that produce false signals in SIDEWAYS (live data: 0% win rate)
+_REVERSAL_PATTERNS = {
+    "DOUBLE_BOTTOM", "TRIPLE_BOTTOM", "INVERSE_HEAD_AND_SHOULDERS",  # LONG reversal
+    "DOUBLE_TOP", "TRIPLE_TOP", "HEAD_AND_SHOULDERS",                # SHORT reversal
+}
 
 
 # ═══ MTF Grade ═══
@@ -159,6 +163,9 @@ def _compute_scan_score(
     # Chart pattern synergy
     for pat in chart_pats:
         if pat["direction"] == direction:
+            # SIDEWAYS에서 반전 패턴은 보너스/확인 제외 (실거래 0% 승률)
+            if regime == "SIDEWAYS" and pat["name"] in _REVERSAL_PATTERNS:
+                continue
             pattern_bonus += 15
             confirmation_names.append(pat["name"])
         elif pat["direction"] != "NEUTRAL":
@@ -178,6 +185,79 @@ def _compute_scan_score(
 
     score = max(0.0, min(total, 100.0))
     return score, primary_type, direction, confirmation_names
+
+
+# ═══ If-Then Quality Rules ═══
+
+# Signal types that only have edge in strong trends (live data: T3=75% of losses, T4/T5/T8=0% WR)
+_STRONG_ONLY_TYPES = {
+    "T3_BREAKOUT_RETEST",
+    "T4_TRENDLINE_BREAK",
+    "T5_POC_MAGNET",
+    "T8_FUNDING_OI_SIGNAL",
+}
+_STRONG_REGIMES = {"STRONG_UPTREND", "STRONG_DOWNTREND"}
+
+
+def _apply_quality_rules(
+    found: bool,
+    primary_type: str | None,
+    regime: str,
+    mtf_grade: str,
+    score: float,
+    confirmations: list[str],
+    regime_confidence: float,
+) -> tuple[bool, str | None]:
+    """
+    Apply if-then quality rules to filter low-edge signals.
+
+    Returns (found, block_reason).  block_reason is None when signal passes.
+    Rules are evaluated in priority order; first match blocks.
+    """
+    if not found or primary_type is None:
+        return found, None
+
+    # Rule 1: IF T3/T4/T5/T8 AND regime is NOT strong → THEN block
+    # Reason: these types rely on strong momentum; in weak/sideways they produce false signals
+    if primary_type in _STRONG_ONLY_TYPES and regime not in _STRONG_REGIMES:
+        return False, f"R1_TREND_ONLY: {primary_type} in {regime} (need STRONG trend)"
+
+    # Rule 2: IF VOLATILE regime → THEN block all signals
+    # Reason: all regime-type weights <0.40 in VOLATILE; no historical edge
+    if regime == "VOLATILE":
+        return False, f"R2_NO_VOLATILE: {primary_type} in VOLATILE (no edge)"
+
+    # Rule 3: IF MTF grade is D or F → THEN block
+    # Reason: higher timeframes strongly disagree with signal direction
+    if mtf_grade in ("D", "F"):
+        return False, f"R3_MTF_DIVERGE: {primary_type} MTF={mtf_grade} (higher TF against)"
+
+    # Rule 4: IF no confirmation AND score < 60 AND not T1 → THEN block
+    # Reason: single inflection without candlestick/secondary backing is unreliable
+    # T1 (S/R reaction) exempted — strong S/R level alone is a valid standalone signal
+    if primary_type != "T1_SR_REACTION" and len(confirmations) == 0 and score < 60:
+        return False, f"R4_NO_CONFIRM: {primary_type} score={score:.0f} (need ≥1 confirmation or score≥60)"
+
+    # Rule 5: IF regime confidence < 0.20 → THEN block
+    # Reason: very low confidence = regime boundary noise
+    # Relaxed from 0.40 to 0.20: Phase 4 applies confidence penalty for 0.20~0.50 range
+    if regime_confidence < 0.20:
+        return False, f"R5_LOW_CONFIDENCE: {primary_type} conf={regime_confidence:.2f} (need ≥0.20)"
+
+    # Rule 6: IF MTF grade C AND score < 60 → THEN block
+    # Reason: partial TF agreement + low score = marginal signal
+    # Relaxed from 70 to 60: Phase 4 gate handles quality filtering
+    if mtf_grade == "C" and score < 60:
+        return False, f"R6_WEAK_MTF: {primary_type} MTF=C score={score:.0f} (need score≥60 with MTF C)"
+
+    # Rule 7: SIDEWAYS에서 반전 패턴만으로 확인된 T1은 차단
+    # DOUBLE_BOTTOM 등이 유일한 확인이면 허위 신호일 가능성 높음
+    if regime == "SIDEWAYS" and primary_type == "T1_SR_REACTION":
+        real_confirms = [c for c in confirmations if c not in _REVERSAL_PATTERNS]
+        if len(confirmations) > 0 and len(real_confirms) == 0 and score < 55:
+            return False, f"R7_SIDEWAYS_REVERSAL: T1 confirmed only by reversal patterns, score={score:.0f}"
+
+    return True, None
 
 
 # ═══ Main Phase 3 Entry ═══
@@ -272,11 +352,15 @@ def phase3_scan(
     min_score = regime_min_scores.get(regime, default_min)
     found = score >= min_score and primary_type is not None
 
-    # Data-driven SIDEWAYS regime filters (historically losing signal types)
-    _SIDEWAYS_BLOCKED = {"T5_POC_MAGNET", "T4_TRENDLINE_BREAK"}
-    if found and primary_type in _SIDEWAYS_BLOCKED and regime == "SIDEWAYS":
-        logger.info("%s blocked in SIDEWAYS regime (data-driven filter)", primary_type)
-        found = False
+    # ═══ If-Then Quality Rules ═══
+    # Each rule: IF <condition> THEN block signal, with logged reason.
+    # Rules applied sequentially; first triggered rule blocks the signal.
+    found, block_reason = _apply_quality_rules(
+        found, primary_type, regime, mtf_grade,
+        score, confirmation_names, regime_result.confidence,
+    )
+    if block_reason:
+        logger.info("RULE BLOCK: %s", block_reason)
 
     # Build pattern result
     pattern_target_atr = None

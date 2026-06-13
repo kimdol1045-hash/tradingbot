@@ -24,7 +24,12 @@ from src.pipeline.position_manager import PositionManager
 from src.pipeline.runner import PipelineRunner
 from src.pipeline.screener_scheduler import ScreenerScheduler
 from src.utils import config as cfg
-from src.utils.config import AGENT_PROFILES, ALL_SYMBOLS, LOG_LEVEL, get_wallet_addresses, get_wallet_configs, reload_symbol_pool
+from src.utils.config import (
+    AGENT_PROFILES,
+    LOG_LEVEL,
+    get_wallet_configs,
+    reload_symbol_pool,
+)
 from src.dashboard.app import create_app
 from src.utils.db import init_db
 from src.utils.health import register_components, start_health_server
@@ -158,6 +163,7 @@ async def main() -> None:
                 balance = 0.0
             pipeline.set_capital(agent_id, balance)
             equity_tracker.initialize_agent(agent_id, balance)
+            await equity_tracker.restore_from_db(agent_id)
             logger.info("Agent %s: $%.2f (%s...)", agent_id, balance, wc.wallet_address[:12])
     else:
         for agent_id in AGENT_PROFILES:
@@ -166,6 +172,7 @@ async def main() -> None:
 
     # Wire callbacks
     collector.on_candle_close_callback = pipeline.on_candle_close
+    equity_tracker.add_trade_callback(pipeline.circuit_breaker.record_trade_result)
 
     # Register health check
     register_components(

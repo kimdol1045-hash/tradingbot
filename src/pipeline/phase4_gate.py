@@ -12,7 +12,7 @@ import logging
 import numpy as np
 
 from src.pipeline.models import GateResult
-from src.utils.config import COST_MODEL, MDD_POLICIES
+from src.utils.config import MDD_POLICIES
 from src.utils.indicators import adx, candles_to_arrays, ichimoku, rsi
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ PF_ADJUSTMENTS = {
     "above_2.5": -5,
     "2.0_to_2.5": 0,
     "1.5_to_2.0": 5,
-    "1.0_to_1.5": 10,
-    "below_1.0": 0,
+    "1.0_to_1.5": 5,
+    "below_1.0": 5,    # IF PF < 1.0 → THEN raise gate +5 (mild tightening; rules do the heavy lifting)
 }
 
 
@@ -40,46 +40,46 @@ def _pf_tier(rolling_pf: float) -> str:
     return "below_1.0"
 
 
-# ═══ Technical Indicator Scoring (8 items, 100 total) ═══
+# ═══ Technical Indicator Scoring (8 env items → 65 total + 4 quality items → 35 total) ═══
 
 def _score_rsi(candles: list[dict], direction: str) -> float:
-    """RSI evaluation: 0~20 points."""
+    """RSI evaluation: 0~12 points."""
     arr = candles_to_arrays(candles)
     rsi_vals = rsi(arr["close"], period=14)
     valid = rsi_vals[~np.isnan(rsi_vals)]
     if len(valid) == 0:
-        return 10.0
+        return 6.0
 
     current_rsi = float(valid[-1])
 
     if direction == "LONG":
         if current_rsi < 30:
-            return 18.0  # Oversold = good for long
+            return 11.0  # Oversold = good for long
         elif current_rsi < 45:
-            return 14.0
+            return 8.0
         elif current_rsi < 55:
-            return 10.0
-        elif current_rsi < 70:
             return 6.0
+        elif current_rsi < 70:
+            return 4.0
         else:
-            return 2.0  # Overbought = bad for long
+            return 1.0  # Overbought = bad for long
     else:  # SHORT
         if current_rsi > 70:
-            return 18.0
+            return 11.0
         elif current_rsi > 55:
-            return 14.0
+            return 8.0
         elif current_rsi > 45:
-            return 10.0
-        elif current_rsi > 30:
             return 6.0
+        elif current_rsi > 30:
+            return 4.0
         else:
-            return 2.0
+            return 1.0
 
 
 def _score_volume_cvd(candles: list[dict], direction: str) -> float:
-    """Volume/CVD alignment: 0~10 points."""
+    """Volume/CVD alignment: 0~8 points."""
     if len(candles) < 5:
-        return 5.0
+        return 4.0
 
     # Simple CVD proxy: sum of (close > open ? +vol : -vol)
     cvd = 0.0
@@ -90,17 +90,17 @@ def _score_volume_cvd(candles: list[dict], direction: str) -> float:
             cvd -= c["volume"]
 
     if direction == "LONG" and cvd > 0:
-        return 8.0
+        return 7.0
     elif direction == "SHORT" and cvd < 0:
-        return 8.0
+        return 7.0
     elif abs(cvd) < sum(c["volume"] for c in candles[-10:]) * 0.1:
-        return 5.0  # Neutral
+        return 4.0  # Neutral
     else:
-        return 2.0
+        return 1.0
 
 
 def _score_htf_consensus(regime_result, direction: str) -> float:
-    """HTF agreement: 0~15 points."""
+    """HTF agreement: 0~10 points."""
     alignment = regime_result.alignment
     regime = regime_result.regime
 
@@ -109,71 +109,71 @@ def _score_htf_consensus(regime_result, direction: str) -> float:
     bearish_regimes = {"STRONG_DOWNTREND", "WEAK_DOWNTREND"}
 
     if direction == "LONG" and regime in bullish_regimes:
-        base = 12.0
+        base = 8.0
     elif direction == "SHORT" and regime in bearish_regimes:
-        base = 12.0
+        base = 8.0
     elif regime == "SIDEWAYS":
-        base = 7.0
-    elif regime == "VOLATILE":
-        base = 3.0
-    else:
         base = 5.0
+    elif regime == "VOLATILE":
+        base = 2.0
+    else:
+        base = 3.0
 
-    return min(base * (0.5 + alignment * 0.5), 15.0)
+    return min(base * (0.5 + alignment * 0.5), 10.0)
 
 
 def _score_funding_alignment(candles: list[dict], direction: str) -> float:
-    """Funding alignment: 0~10 points."""
+    """Funding alignment: 0~8 points."""
     funding = candles[-1].get("funding_rate", 0) or 0
 
     # Counter-trend funding is favorable
     if direction == "LONG" and funding < 0:
-        return 8.0  # Short-heavy funding, good for long
+        return 7.0  # Short-heavy funding, good for long
     elif direction == "SHORT" and funding > 0:
-        return 8.0  # Long-heavy funding, good for short
+        return 7.0  # Long-heavy funding, good for short
     elif abs(funding) < 0.0001:
-        return 5.0  # Neutral
+        return 4.0  # Neutral
     else:
-        return 3.0
+        return 2.0
 
 
 def _score_ichimoku(candles: list[dict], direction: str) -> float:
-    """Ichimoku Cloud evaluation: 0~15 points."""
+    """Ichimoku Cloud evaluation: 0~10 points."""
     arr = candles_to_arrays(candles)
     if len(arr["close"]) < 52:
-        return 7.5  # Not enough data → neutral
+        return 5.0  # Not enough data → neutral
 
     ichi = ichimoku(arr["high"], arr["low"], arr["close"])
 
     if direction == "LONG":
         if ichi["above_cloud"] and ichi["tenkan_above_kijun"]:
-            return 14.0  # Strong bullish alignment
+            return 10.0  # Strong bullish alignment
         elif ichi["above_cloud"]:
-            return 11.0  # Price above cloud but TK cross weak
+            return 7.0   # Price above cloud but TK cross weak
         elif ichi["in_cloud"] and ichi["tenkan_above_kijun"]:
-            return 8.0   # Emerging from cloud
+            return 5.0   # Emerging from cloud
         elif ichi["in_cloud"]:
-            return 5.0   # Undecided
+            return 3.0   # Undecided
         else:
-            return 2.0   # Below cloud = bearish for long
+            return 1.0   # Below cloud = bearish for long
     else:  # SHORT
         if ichi["below_cloud"] and not ichi["tenkan_above_kijun"]:
-            return 14.0  # Strong bearish alignment
+            return 10.0  # Strong bearish alignment
         elif ichi["below_cloud"]:
-            return 11.0
+            return 7.0
         elif ichi["in_cloud"] and not ichi["tenkan_above_kijun"]:
-            return 8.0
-        elif ichi["in_cloud"]:
             return 5.0
+        elif ichi["in_cloud"]:
+            return 3.0
         else:
-            return 2.0   # Above cloud = bullish for short
+            return 1.0   # Above cloud = bullish for short
 
 
 def _score_adx(candles: list[dict], direction: str) -> float:
-    """ADX trend strength evaluation: 0~10 points."""
+    """ADX trend strength evaluation: 0~7 points."""
     arr = candles_to_arrays(candles)
     if len(arr["close"]) < 30:
-        return 5.0  # Not enough data → neutral
+        return 3.5  # Not enough data → neutral
 
     adx_result = adx(arr["high"], arr["low"], arr["close"], period=14)
     adx_val = adx_result["adx"]
@@ -186,19 +186,19 @@ def _score_adx(candles: list[dict], direction: str) -> float:
 
     if adx_val >= 25:
         # Strong trend
-        return 9.0 if di_aligned else 2.0
+        return 6.0 if di_aligned else 1.0
     elif adx_val >= 20:
         # Moderate trend
-        return 7.0 if di_aligned else 4.0
+        return 5.0 if di_aligned else 3.0
     else:
         # Weak/no trend — slightly favor as range conditions can work
-        return 5.0
+        return 3.5
 
 
 def _score_liq_risk(candles: list[dict]) -> float:
-    """Liquidation risk evaluation: 0~10 points. Higher = safer."""
+    """Liquidation risk evaluation: 0~5 points. Higher = safer."""
     if len(candles) < 10:
-        return 5.0
+        return 2.5
 
     # Recent liquidation volume relative to normal trading volume
     recent = candles[-10:]
@@ -216,63 +216,141 @@ def _score_liq_risk(candles: list[dict]) -> float:
         oi_change = 0.0
 
     # Score: low liq + moderate OI = safe (high score)
-    score = 7.0  # base
+    score = 3.5  # base
 
     # Penalize high liquidation activity
     if liq_ratio > 0.5:
-        score -= 4.0
-    elif liq_ratio > 0.2:
         score -= 2.0
-    elif liq_ratio > 0.1:
+    elif liq_ratio > 0.2:
         score -= 1.0
+    elif liq_ratio > 0.1:
+        score -= 0.5
 
     # Penalize rapid OI buildup (potential cascade risk)
     if abs(oi_change) > 0.15:
-        score -= 2.0
-    elif abs(oi_change) > 0.08:
         score -= 1.0
+    elif abs(oi_change) > 0.08:
+        score -= 0.5
 
-    return float(np.clip(score, 0.0, 10.0))
+    return float(np.clip(score, 0.0, 5.0))
 
 
 def _score_atr_regime(candles: list[dict], scan_atr: float) -> float:
-    """ATR regime: 0~10 points. Moderate ATR = best."""
+    """ATR regime: 0~5 points. Moderate ATR = best."""
     arr = candles_to_arrays(candles)
     closes = arr["close"]
     if len(closes) < 20 or closes[-1] <= 0:
-        return 5.0
+        return 2.5
 
     atr_pct = scan_atr / closes[-1] * 100
     # Sweet spot: 0.3~1.5% ATR
     if 0.3 <= atr_pct <= 1.5:
-        return 9.0
+        return 5.0
     elif 0.1 <= atr_pct <= 3.0:
-        return 6.0
-    else:
         return 3.0
+    else:
+        return 1.0
+
+
+def _score_signal_quality(scan_result) -> float:
+    """Signal quality: 0~15 pts based on pattern type and scan score."""
+    # Pattern type quality (live trade data)
+    TYPE_QUALITY = {
+        "T1_SR_REACTION": 5.0,
+        "T6_DIVERGENCE": 6.0,
+        "T5_POC_MAGNET": 5.0,
+        "T2_TRENDLINE_REACTION": 4.0,
+        "T3_BREAKOUT_RETEST": 3.0,
+        "T4_TRENDLINE_BREAK": 3.0,
+        "T8_FUNDING_OI_SIGNAL": 2.0,
+        "T7_VOLUME_EXPLOSION": 1.0,
+    }
+    score = TYPE_QUALITY.get(scan_result.primary_type, 2.0)
+
+    # Scan score scaling: 30→0, 100→5
+    scan_s = max(0.0, min((scan_result.score - 30) / 70 * 5, 5.0))
+    score += scan_s
+
+    # Confirmation count (diminishing returns)
+    n = len(scan_result.patterns.confirmation_names) if scan_result.patterns else 0
+    score += min(n, 3) * 1.33  # 0~4 pts
+
+    return min(score, 15.0)
+
+
+def _score_confirmation_quality(scan_result) -> float:
+    """Confirmation quality: 0~5 pts. Live trade data-based weights."""
+    if not scan_result.patterns or not scan_result.patterns.confirmation_names:
+        return 0.0
+    POSITIVE = {"T6_DIVERGENCE", "T5_POC_MAGNET"}
+    NEGATIVE = {
+        "DOUBLE_BOTTOM", "TRIPLE_BOTTOM", "INVERSE_HEAD_AND_SHOULDERS",
+        "DOUBLE_TOP", "TRIPLE_TOP", "HEAD_AND_SHOULDERS",
+    }
+    score = 0.0
+    for c in scan_result.patterns.confirmation_names:
+        if c in POSITIVE:
+            score += 2.5
+        elif c in NEGATIVE:
+            score -= 1.5
+        else:
+            score += 0.5
+    return max(0.0, min(score, 5.0))
 
 
 def _calculate_tech_score(
     candles: list[dict],
     direction: str,
     regime_result,
-    scan_atr: float,
+    scan_result,
 ) -> float:
-    """Total technical indicator score: 0~100."""
-    rsi_score = _score_rsi(candles, direction)              # 0~20
-    vol_score = _score_volume_cvd(candles, direction)       # 0~10
-    htf_score = _score_htf_consensus(regime_result, direction)  # 0~15
-    funding_score = _score_funding_alignment(candles, direction)  # 0~10
-    atr_score = _score_atr_regime(candles, scan_atr)        # 0~10
+    """Total score: env 0~65 + quality 0~35 = 0~100."""
+    # ── Environment indicators (0~65) ──
+    rsi_score = _score_rsi(candles, direction)                    # 0~12
+    vol_score = _score_volume_cvd(candles, direction)             # 0~8
+    htf_score = _score_htf_consensus(regime_result, direction)    # 0~10
+    funding_score = _score_funding_alignment(candles, direction)  # 0~8
+    atr_score = _score_atr_regime(candles, scan_result.atr)       # 0~5
+    ichimoku_score = _score_ichimoku(candles, direction)          # 0~10
+    adx_score = _score_adx(candles, direction)                    # 0~7
+    liq_risk_score = _score_liq_risk(candles)                     # 0~5
 
-    # Ichimoku Cloud: 0~15
-    ichimoku_score = _score_ichimoku(candles, direction)
-    # ADX trend strength: 0~10
-    adx_score = _score_adx(candles, direction)
-    # Liquidation risk: 0~10
-    liq_risk_score = _score_liq_risk(candles)
+    env_score = (rsi_score + vol_score + htf_score + funding_score
+                 + atr_score + ichimoku_score + adx_score + liq_risk_score)  # 0~65
 
-    return rsi_score + vol_score + htf_score + funding_score + atr_score + ichimoku_score + adx_score + liq_risk_score
+    # ── Signal quality indicators (0~35) ──
+    signal_quality = _score_signal_quality(scan_result)           # 0~15
+
+    # Scan score bonus (-3~10)
+    if scan_result.score >= 90:
+        scan_bonus = 10.0
+    elif scan_result.score >= 80:
+        scan_bonus = 7.0
+    elif scan_result.score >= 70:
+        scan_bonus = 4.0
+    elif scan_result.score >= 60:
+        scan_bonus = 2.0
+    elif scan_result.score < 50:
+        scan_bonus = -3.0
+    else:
+        scan_bonus = 0.0
+
+    # MTF grade bonus (-5~5)
+    mtf_modifier = {"A": 5, "B": 3, "C": 1, "D": -2, "F": -5, "NONE": 0}
+    mtf_bonus = mtf_modifier.get(scan_result.mtf_grade, 0)
+
+    confirm_quality = _score_confirmation_quality(scan_result)    # 0~5
+
+    quality_score = signal_quality + scan_bonus + mtf_bonus + confirm_quality  # ~-8~35
+
+    # ── Confidence penalty: low regime confidence = uncertain signal ──
+    regime_conf = getattr(regime_result, "confidence", 1.0)
+    if regime_conf < 0.50:
+        conf_penalty = (0.50 - regime_conf) * 16  # 0.20→-4.8, 0.30→-3.2, 0.40→-1.6
+    else:
+        conf_penalty = 0.0
+
+    return env_score + quality_score - conf_penalty
 
 
 # ═══ Penalties ═══
@@ -405,39 +483,29 @@ def phase4_gate(
         )
     size_mult *= exposure_mult
 
-    # ━━━━ 4C: Technical scoring ━━━━
+    # ━━━━ 4C: Technical scoring (env 65 + quality 35) ━━━━
     gate_params = params.get("gate", {})
-    tech_score = _calculate_tech_score(candles, direction, regime_result, scan_result.atr)
+    tech_score = _calculate_tech_score(candles, direction, regime_result, scan_result)
 
-    # ━━━━ 4D: Inflection/MTF bonus ━━━━
-    inflection_bonus = 0.0
-    if not gate_params.get("skip_inflection_bonus", False):
-        if scan_result.score >= 90:
-            inflection_bonus = 5.0
-        elif scan_result.score >= 80:
-            inflection_bonus = 3.0
-        elif scan_result.score < 70:
-            inflection_bonus = -5.0
-
-    mtf_modifier = {"A": 3, "B": 2, "C": 1, "D": -1, "F": -3, "NONE": 0}
-    mtf_bonus = mtf_modifier.get(scan_result.mtf_grade, 0)
-
-    # ━━━━ 4E: Penalties ━━━━
+    # ━━━━ 4D: Penalties ━━━━
     penalty = _calculate_penalty(candles, regime_result, stats)
 
-    # ━━━━ 4F: Final score ━━━━
-    raw_score = tech_score + inflection_bonus + mtf_bonus + penalty
+    # ━━━━ 4E: Final score ━━━━
+    raw_score = tech_score + penalty
     final_score = max(0.0, min(raw_score, 100.0))
 
-    # ━━━━ 4G: Pass threshold (dynamic) ━━━━
+    # ━━━━ 4F: Pass threshold (dynamic) ━━━━
     base_pass_scores = gate_params.get("base_pass_scores", {
         "STRONG_UPTREND": 40, "WEAK_UPTREND": 45, "SIDEWAYS": 50,
         "WEAK_DOWNTREND": 45, "STRONG_DOWNTREND": 40, "VOLATILE": 60,
     })
     base = base_pass_scores.get(regime_result.regime, 65)
 
-    rolling_pf = agent_state.get("rolling_pf", 2.0)
-    pf_adj = PF_ADJUSTMENTS.get(_pf_tier(rolling_pf), 0)
+    rolling_pf = agent_state.get("rolling_pf")
+    if rolling_pf is None:
+        pf_adj = 0  # No trade history → neutral, no adjustment
+    else:
+        pf_adj = PF_ADJUSTMENTS.get(_pf_tier(rolling_pf), 0)
 
     pass_threshold = max(45.0, min(base + score_adj + pf_adj, 95.0))
 
@@ -445,7 +513,7 @@ def phase4_gate(
 
     passed = final_score >= pass_threshold
 
-    # ━━━━ 4H: Score-based size scaling ━━━━
+    # ━━━━ 4G: Score-based size scaling ━━━━
     # Higher gate score → larger position (0.5x ~ 1.5x)
     if passed:
         score_range = 95.0 - pass_threshold

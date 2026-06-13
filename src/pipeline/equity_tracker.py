@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import dataclass, field
 
 from src.utils.config import DB_PATH
@@ -33,7 +33,7 @@ class AgentEquity:
     # Rolling PF (last 20 trades)
     recent_profits: deque = field(default_factory=lambda: deque(maxlen=20))
     recent_losses: deque = field(default_factory=lambda: deque(maxlen=20))
-    rolling_pf: float = 2.0
+    rolling_pf: float | None = None  # None = no trade history yet
     # Equity history
     equity_snapshots: list = field(default_factory=list)  # [(timestamp, equity)]
 
@@ -65,6 +65,11 @@ class EquityTracker:
         self._trade_cooldown_sec: float = 30.0  # Skip balance overwrite if trade recorded within this window
         self._db = None  # Shared DB connection for equity writes
         self._db_lock = asyncio.Lock()  # Prevent concurrent writes
+        self._on_trade_callbacks: list = []
+
+    def add_trade_callback(self, callback):
+        """Register a callback to be called with pnl on each trade."""
+        self._on_trade_callbacks.append(callback)
 
     def initialize_agent(self, agent_id: str, capital: float):
         """Set up tracking for an agent."""
@@ -75,6 +80,66 @@ class EquityTracker:
             peak_equity=capital,
         )
         logger.info("Equity tracker initialized: %s with $%.2f", agent_id, capital)
+
+    async def restore_from_db(self, agent_id: str):
+        """Load recent trades from DB to restore rolling_pf.
+
+        Called once per agent at startup so that PF is calculated from real data
+        instead of a hardcoded default.
+
+        NOTE: consecutive_losses is NOT restored — it starts fresh at 0.
+        Reason: old losing streaks were produced by old rules; new quality rules
+        fundamentally change signal selection, so penalizing new rules with old
+        streak data is incorrect.  PF is restored because it reflects market
+        conditions (not just rule quality).
+        """
+        agent = self.agents.get(agent_id)
+        if not agent:
+            return
+
+        try:
+            await self._ensure_db()
+            cursor = await self._db.execute(
+                "SELECT pnl_usd FROM trades "
+                "WHERE agent_id = ? AND exit_reason IS NOT NULL "
+                "AND pnl_usd IS NOT NULL AND pnl_usd != 0 "
+                "ORDER BY exit_time DESC LIMIT 20",
+                (agent_id,),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            logger.warning("Failed to restore PF from DB for %s", agent_id, exc_info=True)
+            return
+
+        if not rows:
+            logger.info("[%s] No trade history in DB — rolling_pf stays None (neutral)", agent_id)
+            return
+
+        # Populate deques (reverse to chronological order)
+        for (pnl,) in reversed(rows):
+            if pnl > 0:
+                agent.recent_profits.append(pnl)
+            elif pnl < 0:
+                agent.recent_losses.append(abs(pnl))
+
+        # Calculate actual PF
+        gross_profit = sum(agent.recent_profits)
+        gross_loss = sum(agent.recent_losses)
+        if gross_loss > 0:
+            agent.rolling_pf = gross_profit / gross_loss
+        elif gross_profit > 0:
+            agent.rolling_pf = 10.0  # Cap: all wins
+        # else: both 0 → stays None
+
+        # consecutive_losses stays at 0 (fresh start with new rules)
+
+        logger.info(
+            "[%s] Restored from DB: rolling_pf=%s, consecutive_losses=%d (fresh), trades=%d",
+            agent_id,
+            f"{agent.rolling_pf:.2f}" if agent.rolling_pf is not None else "None",
+            agent.consecutive_losses,
+            len(rows),
+        )
 
     async def record_trade(self, agent_id: str, pnl: float):
         """Record a completed trade's PnL and persist to DB."""
@@ -115,15 +180,26 @@ class EquityTracker:
         # Update rolling PF
         gross_profit = sum(agent.recent_profits)
         gross_loss = sum(agent.recent_losses)
-        agent.rolling_pf = gross_profit / gross_loss if gross_loss > 0 else float("inf")
-        if agent.rolling_pf == float("inf"):
-            agent.rolling_pf = 10.0  # Cap
+        if gross_loss > 0:
+            agent.rolling_pf = min(gross_profit / gross_loss, 10.0)
+        elif gross_profit > 0:
+            agent.rolling_pf = 10.0  # All wins, cap
+        else:
+            agent.rolling_pf = None  # No profit or loss data yet
 
         logger.debug(
-            "[%s] Trade: pnl=%.2f equity=%.2f mdd=%.4f pf=%.2f streak=%d",
+            "[%s] Trade: pnl=%.2f equity=%.2f mdd=%.4f pf=%s streak=%d",
             agent_id, pnl, agent.current_equity, agent.current_mdd,
-            agent.rolling_pf, agent.consecutive_losses,
+            f"{agent.rolling_pf:.2f}" if agent.rolling_pf is not None else "None",
+            agent.consecutive_losses,
         )
+
+        # Notify trade callbacks (circuit breaker etc.)
+        for cb in self._on_trade_callbacks:
+            try:
+                cb(pnl)
+            except Exception:
+                logger.debug("Trade callback error", exc_info=True)
 
         # Persist to equity_curve table
         await self._flush_to_db(agent_id, ts, agent.current_equity, agent.current_mdd, agent.peak_equity)
@@ -392,7 +468,7 @@ class EquityTracker:
                     "trades": a.total_trades,
                     "wins": a.wins,
                     "losses": a.losses,
-                    "pf": round(min(a.rolling_pf, 99.99), 2),
+                    "pf": round(min(a.rolling_pf, 99.99), 2) if a.rolling_pf is not None else None,
                     "streak": a.consecutive_losses,
                 }
                 for aid, a in self.agents.items()

@@ -5,7 +5,6 @@ Sends Telegram alert if issues detected.
 import asyncio
 import os
 import sys
-import time
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,7 +41,7 @@ def check_bot_process() -> str | None:
     """Check if bot process is alive."""
     import subprocess
     result = subprocess.run(
-        ["pgrep", "-f", "python.*-m src.main"],
+        ["pgrep", "-f", "python.*src/main.py"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -57,7 +56,7 @@ def check_log_growth() -> str | None:
         size = os.path.getsize(BOT_LOG)
         if last_log_size > 0 and size == last_log_size:
             consecutive_stale += 1
-            if consecutive_stale >= 3:  # 15 minutes no log activity
+            if consecutive_stale >= 6:  # 30 minutes no log activity
                 consecutive_stale = 0
                 return "봇 로그가 15분간 업데이트 없음 — WS 연결 확인 필요"
         else:
@@ -80,7 +79,7 @@ def check_recent_errors() -> str | None:
 
         lines = content.split("\n")
         # Only flag truly critical errors (not backfill rate limits or minor tracebacks)
-        critical_errors = [l for l in lines if any(kw in l for kw in [
+        critical_errors = [line for line in lines if any(kw in line for kw in [
             "EMERGENCY", "CLOSE_ALL", "HALTED", "Fatal error",
         ])]
 

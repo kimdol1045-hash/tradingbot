@@ -19,7 +19,7 @@ import httpx
 import numpy as np
 
 from src.notify.telegram import notify_system
-from src.utils.config import ALL_SYMBOLS, OPENAI_API_KEY
+from src.utils.config import OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,8 @@ Principles:
 - Extreme funding rates suggest crowded positioning -> reduce leverage.
 - High ATR ratio (vs average) = elevated volatility -> reduce leverage, widen SL.
 - Low volume relative to average suggests low liquidity -> reduce leverage.
+
+IMPORTANT: Write the "reasoning" field and "global_note" field in Korean (한국어).
 """
 
 
@@ -193,7 +195,7 @@ class MarketAdvisor:
         global_note = result.get("global_note", "")
         try:
             await notify_system(
-                f"[MarketAdvisor] Updated {len(parsed)} symbols\n"
+                f"[MarketAdvisor] {len(parsed)}개 심볼 업데이트\n"
                 f"{symbols_summary}\n"
                 f"{global_note}"
             )
@@ -202,11 +204,17 @@ class MarketAdvisor:
 
     # ── Market Snapshot ──
 
+    # Major symbols for advisor analysis (keeps prompt small, avoids context overflow)
+    _ADVISOR_SYMBOLS = [
+        "BTC", "ETH", "SOL", "XRP", "DOGE", "BNB",
+        "AVAX", "LINK", "SUI", "AAVE", "NEAR", "ARB",
+    ]
+
     def _build_market_snapshot(self) -> list[dict] | None:
-        """Build compact market data snapshot for all symbols from 5m candles."""
+        """Build compact market data snapshot for major symbols only."""
         snapshots = []
 
-        for symbol in ALL_SYMBOLS:
+        for symbol in self._ADVISOR_SYMBOLS:
             candles = self.cache.get(symbol, "5m", limit=200)
             if len(candles) < 50:
                 continue

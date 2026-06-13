@@ -22,7 +22,7 @@ from src.pipeline.phase2_read import phase2_read
 from src.pipeline.phase3_scan import phase3_scan
 from src.pipeline.phase4_gate import phase4_gate
 from src.pipeline.phase5_execute import phase5_execute
-from src.utils.config import AGENT_PROFILES, COST_MODEL, TIMEFRAME_MINUTES
+from src.utils.config import AGENT_PROFILES, COST_MODEL
 from src.utils.market_stats import MarketStats, compute_stats
 from src.utils.params import load_params
 
@@ -376,7 +376,7 @@ class BacktestEngine:
             "total_capital": capital / profile.capital_pct,
             "initial_capital": capital,
             "open_risk": 0.0,
-            "rolling_pf": 2.0,
+            "rolling_pf": None,  # No history at start → neutral gate adjustment
             "consecutive_losses": 0,
             "open_positions_count": 0,
             "avg_atr_7d": 0.0,

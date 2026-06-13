@@ -218,7 +218,7 @@ async def notify_signal(signal) -> bool:
             f"P1 Safety: {ps.get('stage', '?')} | MDD: {ps.get('mdd_mode', '?')}\n"
             f"P2 Regime: {ps.get('regime', '?')} ({ps.get('regime_confidence', 0):.0%}) | MTF: {ps.get('mtf_alignment', 0):.0%}\n"
             f"P3 Scan: {ps.get('primary_type', '?')} ({ps.get('scan_score', 0):.0f}점) | MTF등급: {ps.get('mtf_grade', '?')}\n"
-            f"P4 Gate: {ps.get('gate_score', 0):.0f}/{ps.get('gate_threshold', 0):.0f} | PF: {ps.get('rolling_pf', 0):.1f}\n"
+            f"P4 Gate: {ps.get('gate_score', 0):.0f}/{ps.get('gate_threshold', 0):.0f} | PF: {ps.get('rolling_pf') or 0:.1f}\n"
             f"P5 Execute: SL {sl_pct:.2f}% | Lev {signal.leverage}x | RR팩터 {ps.get('rr_factor', 0.5):.2f} | ${signal.notional_usd:,.0f}"
         )
 
@@ -327,15 +327,40 @@ async def notify_tp_hit(signal, tp_level: int, tp_price: float, current_price: f
         return False
 
 
+async def notify_tp_timeout(signal, tp_hits: int, elapsed_sec: float, remaining_qty: float, close_price: float) -> bool:
+    """TP 타임아웃 알림 — 다음 TP 미달성으로 잔여 물량 시장가 익절."""
+    try:
+        hours = elapsed_sec / 3600
+        entry = signal.entry_price or 0
+        if entry > 0:
+            pct = (close_price - entry) / entry * 100
+            if signal.direction == "SHORT":
+                pct = -pct
+        else:
+            pct = 0
+
+        text = (
+            f"⏰ <b>TP 타임아웃</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"에이전트: <code>{signal.agent_id}</code>\n"
+            f"{signal.direction} <b>{signal.symbol}</b> {signal.leverage}x\n"
+            f"TP{tp_hits} 달성 후 <b>{hours:.1f}시간</b> 경과\n"
+            f"잔여 물량 시장가 익절 (qty: {remaining_qty:.4f})\n"
+            f"종료가: {_fmt_price(close_price)} ({pct:+.2f}%)"
+        )
+        return await _send_message(text, topic="exits")
+    except Exception:
+        logger.warning("notify_tp_timeout failed", exc_info=True)
+        return False
+
+
 async def notify_exit(signal, close_price: float, pnl: float, reason: str) -> bool:
     """포지션 청산 알림 (PnL 포함)."""
     try:
         if pnl > 0:
             emoji = "💰"
-            result = "수익"
         else:
             emoji = "💸"
-            result = "손실"
 
         pnl_pct = ((close_price - signal.entry_price) / signal.entry_price * 100) if signal.entry_price else 0
         if signal.direction == "SHORT":
@@ -345,6 +370,7 @@ async def notify_exit(signal, close_price: float, pnl: float, reason: str) -> bo
         reason_kr = {
             "TRAILING_SL": "가격추적 자동청산",
             "TIMEOUT": "보유시간 초과",
+            "TP_TIMEOUT": "TP 타임아웃 익절",
             "TP_HIT": "목표가 도달",
             "SL_HIT": "손절가 도달",
             "EMERGENCY": "긴급 전량 청산",
@@ -693,7 +719,7 @@ system_data에 현재 시스템 상태가 JSON으로 제공됨.
 
 # ═══ Tool System (text-based, no function calling) ═══
 
-from pathlib import Path as _Path
+from pathlib import Path as _Path  # noqa: E402
 
 _PROJECT_ROOT = str(_Path(__file__).resolve().parent.parent.parent)
 
@@ -725,12 +751,12 @@ def _tool_read_file(args: str) -> str:
     safe = _safe_path(rel_path)
     if not safe or not os.path.isfile(safe):
         return f"Error: file not found — {rel_path}"
-    start, end = 0, 200
+    start, end = 0, 80
     if len(parts) > 1:
         try:
             rng = parts[1].strip().split("-")
             start = max(int(rng[0]) - 1, 0)
-            end = int(rng[1]) if len(rng) > 1 else start + 200
+            end = int(rng[1]) if len(rng) > 1 else start + 80
         except (ValueError, IndexError):
             pass
     try:
@@ -771,7 +797,7 @@ def _tool_search_code(args: str) -> str:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=10
         )
-        lines = result.stdout.strip().split("\n")[:30]
+        lines = result.stdout.strip().split("\n")[:15]
         # Make paths relative
         out = []
         for line in lines:
@@ -791,7 +817,7 @@ def _tool_read_logs(args: str) -> str:
     if not os.path.isfile(log_path):
         return "Error: log file not found"
     n = int(args.strip()) if args.strip().isdigit() else 50
-    n = min(n, 200)
+    n = min(n, 50)
     try:
         with open(log_path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
@@ -1191,8 +1217,10 @@ class TelegramChatHandler:
         if any(kw in user_lower for kw in ["거래", "매매", "trade", "내역", "기록", "최근"]):
             system_data["recent_trades"] = await self._get_recent_trades()
 
-        # Build LLM messages
+        # Build LLM messages (truncate system_data to prevent context overflow)
         data_json = json.dumps(system_data, ensure_ascii=False, default=str, indent=2)
+        if len(data_json) > 4000:
+            data_json = data_json[:4000] + "\n... (truncated)"
         messages = [
             {"role": "system", "content": _CHAT_SYSTEM_PROMPT},
             {"role": "user", "content": f"system_data:\n{data_json}\n\n사용자 질문: {user_text}"},
@@ -1213,7 +1241,7 @@ class TelegramChatHandler:
                 await self._reply(chat_id, final_text, thread_id)
                 return
 
-            # Execute tools and build results
+            # Execute tools and build results (truncate each to prevent context overflow)
             tool_results = []
             for tool_name, tool_args in tool_calls:
                 fn = _TOOLS.get(tool_name)
@@ -1222,13 +1250,18 @@ class TelegramChatHandler:
                         result = fn(tool_args)
                     except Exception as e:
                         result = f"Error: {e}"
+                    if len(result) > 3000:
+                        result = result[:3000] + "\n... (truncated)"
                     tool_results.append(f"<result:{tool_name}>\n{result}\n</result>")
                 else:
                     tool_results.append(f"<result:{tool_name}>Unknown tool: {tool_name}</result>")
 
             # Append assistant + tool results, continue loop
             messages.append({"role": "assistant", "content": response})
-            messages.append({"role": "user", "content": "\n".join(tool_results)})
+            combined_results = "\n".join(tool_results)
+            if len(combined_results) > 5000:
+                combined_results = combined_results[:5000] + "\n... (truncated)"
+            messages.append({"role": "user", "content": combined_results})
 
         # Final response after tool turns (or fallback)
         if response:

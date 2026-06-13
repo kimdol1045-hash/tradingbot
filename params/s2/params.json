@@ -1,94 +1,127 @@
 {
   "agent_id": "s2",
   "description": "Short-term trader (5m+15m)",
-
   "dna": {
     "hurst_window": 50,
     "weights": {
-      "hurst": 0.25,
-      "entropy": 0.20,
-      "liquidation": 0.15,
-      "funding": 0.15,
-      "oi_momentum": 0.15,
-      "liq_density": 0.10
+      "hurst": 0.34,
+      "entropy": 0.19,
+      "liquidation": 0.09,
+      "funding": 0.07,
+      "oi_momentum": 0.24,
+      "liq_density": 0.07
     }
   },
-
   "mtf_weights": {
     "5m": 0.45,
     "15m": 0.55
   },
-
   "pattern_policy": {
     "candlestick_enabled": true,
     "chart_pattern_enabled": false
   },
-
   "scan": {
     "regime_min_scores": {
-      "STRONG_UPTREND": 10,
-      "WEAK_UPTREND": 10,
-      "SIDEWAYS": 15,
-      "WEAK_DOWNTREND": 10,
-      "STRONG_DOWNTREND": 10,
-      "VOLATILE": 20
+      "STRONG_UPTREND": 20,
+      "WEAK_UPTREND": 25,
+      "SIDEWAYS": 30,
+      "WEAK_DOWNTREND": 25,
+      "STRONG_DOWNTREND": 20,
+      "VOLATILE": 40
     }
   },
-
   "gate": {
     "base_pass_scores": {
-      "STRONG_UPTREND": 40,
-      "WEAK_UPTREND": 45,
-      "SIDEWAYS": 50,
-      "WEAK_DOWNTREND": 45,
-      "STRONG_DOWNTREND": 40,
-      "VOLATILE": 60
+      "STRONG_UPTREND": 45,
+      "WEAK_UPTREND": 51.0,
+      "SIDEWAYS": 55,
+      "WEAK_DOWNTREND": 51.0,
+      "STRONG_DOWNTREND": 45,
+      "VOLATILE": 76.0
     },
     "pf_anti_stall": {
       "min_daily_trades": 2,
       "exploration_size_mult": 0.3
     },
     "exposure": {
-      "hard_block_pct": 0.30,
-      "reduce_pct": 0.20,
-      "min_size_mult": 0.30,
+      "hard_block_pct": 0.3,
+      "reduce_pct": 0.2,
+      "min_size_mult": 0.3,
       "estimated_sl_pct": 0.02
     }
   },
-
   "leverage": {
     "table": {
-      "STRONG_UPTREND": {"high": 15, "medium": 12, "low": 8},
-      "WEAK_UPTREND": {"high": 12, "medium": 9, "low": 7},
-      "SIDEWAYS": {"high": 10, "medium": 7, "low": 5},
-      "WEAK_DOWNTREND": {"high": 12, "medium": 9, "low": 7},
-      "STRONG_DOWNTREND": {"high": 15, "medium": 12, "low": 8},
-      "VOLATILE": {"high": 8, "medium": 6, "low": 5}
+      "STRONG_UPTREND": {
+        "high": 15,
+        "medium": 12,
+        "low": 8
+      },
+      "WEAK_UPTREND": {
+        "high": 12,
+        "medium": 9,
+        "low": 7
+      },
+      "SIDEWAYS": {
+        "high": 10,
+        "medium": 7,
+        "low": 5
+      },
+      "WEAK_DOWNTREND": {
+        "high": 12,
+        "medium": 9,
+        "low": 7
+      },
+      "STRONG_DOWNTREND": {
+        "high": 15,
+        "medium": 12,
+        "low": 8
+      },
+      "VOLATILE": {
+        "high": 8,
+        "medium": 6,
+        "low": 5
+      }
     },
-    "max_leverage": 15,
-    "confidence_thresholds": {"high": 0.80, "medium": 0.60}
+    "max_leverage": 5,
+    "confidence_thresholds": {
+      "high": 0.8,
+      "medium": 0.6
+    }
   },
-
   "exit": {
     "tp_levels": 2,
-    "tp1_rr": [1.2, 1.8],
-    "tp2_rr": [2.0, 3.0],
-    "split_ratios": [55, 45],
+    "tp1_rr": [
+      1.2,
+      1.8
+    ],
+    "tp2_rr": [
+      1.8,
+      2.5
+    ],
+    "split_ratios": [
+      70,
+      30
+    ],
     "max_hold_candles": 96,
-    "sl_atr_mult": 2.2,
+    "sl_atr_mult": 1.0,
     "max_loss_pct": 0.05,
     "risk_per_trade": 0.015,
     "risk_mode": "dynamic",
-    "fixed_risk_usd": 30.0
+    "fixed_risk_usd": 30.0,
+    "tp_timeout_sec": 7200,
+    "trailing_atr_mult": 0.5
   },
-
   "trailing_stop": {
     "activation": "tp1_hit",
-    "trailing_atr_mult": 1.0,
+    "trailing_atr_mult": 0.8,
     "min_profit_lock": 0.5
   },
-
   "safety": {
-    "stage_thresholds": {"STAGE_1": 160, "STAGE_2": 120, "STAGE_3": 80}
+    "stage_thresholds": {
+      "STAGE_1": 160,
+      "STAGE_2": 120,
+      "STAGE_3": 80
+    }
   }
 }

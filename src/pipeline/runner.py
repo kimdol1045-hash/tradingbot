@@ -5,7 +5,6 @@ S1 → S2 → S3 → S4 sequential execution per symbol.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -25,6 +24,35 @@ from src.utils.market_stats import MarketStats, compute_stats
 from src.utils.params import load_params
 
 logger = logging.getLogger(__name__)
+
+
+class LossCircuitBreaker:
+    """포트폴리오 전체 연속 패배 차단기."""
+
+    def __init__(self, max_consecutive: int = 5, cooldown_minutes: int = 120):
+        self.max_consecutive = max_consecutive
+        self.cooldown_minutes = cooldown_minutes
+        self._consecutive_losses = 0
+        self._paused_until = 0.0
+
+    def record_trade_result(self, pnl: float):
+        if pnl < 0:
+            self._consecutive_losses += 1
+        else:
+            self._consecutive_losses = 0
+        if self._consecutive_losses >= self.max_consecutive:
+            self._paused_until = time.time() + self.cooldown_minutes * 60
+            logger.warning(
+                "CIRCUIT BREAKER: %d consecutive losses → %dmin pause",
+                self._consecutive_losses, self.cooldown_minutes,
+            )
+            self._consecutive_losses = 0
+
+    def is_blocked(self) -> tuple[bool, str]:
+        if time.time() < self._paused_until:
+            remaining = (self._paused_until - time.time()) / 60
+            return True, f"CIRCUIT_BREAKER: {remaining:.0f}min remaining"
+        return False, ""
 
 
 class PipelineRunner:
@@ -57,12 +85,15 @@ class PipelineRunner:
                 "dna_history": {},
                 "capital": 0.0,
                 "open_risk": 0.0,
-                "rolling_pf": 2.0,
+                "rolling_pf": None,  # Populated from DB on startup via equity_tracker.restore_from_db
                 "consecutive_losses": 0,
                 "initial_capital": 0.0,
                 "open_positions_count": 0,
                 "avg_atr_7d": 0.0,
             }
+
+        # Portfolio-level circuit breaker
+        self.circuit_breaker = LossCircuitBreaker(max_consecutive=5, cooldown_minutes=120)
 
         # Emergency halt tracking: {agent_id: halt_until_ts_ms}
         self._halt_until: dict[str, int] = {}
@@ -355,7 +386,14 @@ class PipelineRunner:
         if timeframe != "5m":
             return
 
+        # Portfolio circuit breaker check
+        blocked, reason = self.circuit_breaker.is_blocked()
+        if blocked:
+            logger.info("Trading paused: %s", reason)
+            return []
+
         signals: list[Signal] = []
+        batch_symbols: set[str] = set()  # Track symbols already signaled in this batch
         agent_order = ["s1", "s2", "s3", "s4"]
 
         # Refresh exchange max leverage cache
@@ -410,7 +448,7 @@ class PipelineRunner:
             if self.equity_tracker:
                 et_update = self.equity_tracker.get_agent_state_update(agent_id)
                 if et_update:
-                    self.agent_states[agent_id]["rolling_pf"] = et_update.get("rolling_pf", 2.0)
+                    self.agent_states[agent_id]["rolling_pf"] = et_update.get("rolling_pf")
                     self.agent_states[agent_id]["consecutive_losses"] = et_update.get("consecutive_losses", 0)
                     self.agent_states[agent_id]["current_mdd"] = et_update.get("current_mdd", 0.0)
                     # Update capital from real wallet balance if available
@@ -460,9 +498,14 @@ class PipelineRunner:
                 logger.debug("[%s/%s] Skipped: SL cooldown active (2h)", agent_id, symbol)
                 continue
 
-            # Cross-agent symbol limit: max 2 agents on same symbol
-            if self.pm and self.pm.count_cross_agent_positions(symbol) >= 2:
-                logger.debug("[%s/%s] Skipped: cross-agent limit (2 agents already)", agent_id, symbol)
+            # Cross-agent symbol limit: max 1 agent per symbol
+            if self.pm and self.pm.count_cross_agent_positions(symbol) >= 1:
+                logger.debug("[%s/%s] Skipped: another agent already on this symbol", agent_id, symbol)
+                continue
+
+            # Also block if another agent already signaled this symbol in this batch
+            if symbol in batch_symbols:
+                logger.debug("[%s/%s] Skipped: another agent signaled this symbol in same batch", agent_id, symbol)
                 continue
 
             # Inject AI advisor multipliers, max leverage map, and coin count into agent state
@@ -474,6 +517,7 @@ class PipelineRunner:
             signal = self.run_agent(agent_id, symbol)
             if signal:
                 signals.append(signal)
+                batch_symbols.add(symbol)
 
         # Submit signals to position manager
         if self.pm and signals:

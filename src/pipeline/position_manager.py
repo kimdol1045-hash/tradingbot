@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from src.notify.telegram import notify_exit, notify_fill, notify_tp_hit, notify_tp_timeout
 from src.pipeline.models import Signal
 from src.utils.async_helpers import safe_fire_and_forget
-from src.utils.config import AGENT_PROFILES
 
 logger = logging.getLogger(__name__)
 
@@ -269,9 +268,19 @@ class PositionManager:
                         sig.signal_id[:8], pos.trailing_sl,
                     )
 
-                # All TPs hit → close remaining position
-                if pos.tp_hits >= len(tps) and pos.remaining_qty > 0:
-                    self._close_position(pos, price, "TP_ALL_HIT")
+                # All TPs hit → close position (remaining or fully consumed)
+                if pos.tp_hits >= len(tps):
+                    if pos.remaining_qty > 0:
+                        self._close_position(pos, price, "TP_ALL_HIT")
+                    else:
+                        # All TPs consumed 100% — just mark closed, no extra trade/notification
+                        pos.status = "closed"
+                        pos.close_reason = "TP_ALL_CLOSED"
+                        logger.info("CLOSED %s %s: all TPs filled (100%%), reason=TP_ALL_CLOSED", sig.symbol, sig.signal_id[:8])
+                        safe_fire_and_forget(
+                            self._mark_position_closed(sig.signal_id),
+                            name="mark_tp_all_closed",
+                        )
 
             # Persist TP state once after all hits processed (avoids race condition)
             if pos.tp_hits > tp_hits_before:
@@ -317,6 +326,20 @@ class PositionManager:
                 await db.commit()
         except Exception:
             logger.warning("Failed to update TP state for %s", signal_id[:8], exc_info=True)
+
+    async def _mark_position_closed(self, signal_id: str):
+        """Mark position as CLOSED in DB (used when all TPs fully consumed the position)."""
+        try:
+            import aiosqlite
+            from src.utils.config import DB_PATH
+            async with aiosqlite.connect(str(DB_PATH)) as db:
+                await db.execute(
+                    "UPDATE positions SET status = 'CLOSED' WHERE signal_id = ?",
+                    (signal_id,),
+                )
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to mark position closed: %s", signal_id[:8], exc_info=True)
 
     def update_trailing_stops(self, current_prices: dict[str, float]):
         """Update trailing stops for open positions that have hit TP1."""

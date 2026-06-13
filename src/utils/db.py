@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS positions (
     exchange_order_id TEXT,              -- Hyperliquid order ID for reconciliation
     status          TEXT NOT NULL DEFAULT 'OPEN',  -- 'OPEN','CLOSED'
     tp_hits         INTEGER NOT NULL DEFAULT 0,
-    remaining_qty   REAL NOT NULL DEFAULT 0
+    remaining_qty   REAL NOT NULL DEFAULT 0,
+    last_tp_hit_ts  REAL NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS pipeline_logs (
@@ -116,6 +117,15 @@ async def init_db(db_path: Path | None = None) -> aiosqlite.Connection:
     await conn.execute(f"PRAGMA journal_mode={SQLITE_CONFIG['journal_mode']}")
     await conn.execute(f"PRAGMA busy_timeout={SQLITE_CONFIG['busy_timeout_ms']}")
     await conn.executescript(SCHEMA_SQL)
+
+    # Migrations: add columns if missing (idempotent)
+    try:
+        await conn.execute(
+            "ALTER TABLE positions ADD COLUMN last_tp_hit_ts REAL NOT NULL DEFAULT 0"
+        )
+    except Exception:
+        pass  # Column already exists
+
     await conn.commit()
 
     logger.info("DB initialized: %s (WAL mode)", path)
